@@ -1,0 +1,7 @@
+*.o
+*.a
+*.smol
+*.big
+*.rle
+*.wle
+shrink
