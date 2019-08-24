@@ -8,16 +8,35 @@
  * in the public domain, and has been modified since.
  * See <https://oku.edu.mie-u.ac.jp/~okumura/compression/lzss.c>.
  *
- * TODO: Documentation, add references.
- * TODO: Allow LZSS dictionary to be preloaded with a custom corpus,
- * TODO: Add unit tests, add more assertions, fuzz the CODECS,
- * TODO: Speed up the LZSS compressor. Get coverage results.
- * TODO: Allow the RLE CODEC to be more configurable,
- * TODO: Calculate maximum compression ratio for both CODECS. */
+ * Some ideas for improvement:
+ *
+ * - A hash could be calculated on the input and output, for example
+ *   CCITT-16, and stored in the 'shrink_t' structure.
+ * - Other non-compression related CODECS could be added, for example
+ *   base-64 encoding. The 'shrink_t' structure provides an interface
+ *   for creating generic byte filters.
+ * - Calculate the maximum compression ratio for each CODEC and provide
+ *   functions to retrieve this information.
+ * - Allow the LZSS dictionary to be initialized with a custom corpus
+ *   for both sides of the CODEC, this should allow higher compression
+ *   ratios for certain forms of input. The easiest way of doing this
+ *   would be to use an extra bit address bit to refer to the built
+ *   in fixed dictionary.
+ * - The LZSS compressor could do with speeding up. The two ways of
+ *   doing this would be to improve I/O speed (perhaps by grouping
+ *   control bits, which would allow for byte wise I/O and perhaps
+ *   make entropy left on the table easier to exploit) or by increasing 
+ *   the match search speed, which would be the best option.
+ * - The library could use more assertions, documentation, testing,
+ *   and fuzzing.
+ * - As it is not worth encoding matches for small runs, we can
+ *   use this to increase the maximum number of matches.
+ * - The library could be made to be more (compile time) configurable,
+ *   whilst using (compile time) assertions to ensure correctness.  */
 
 #include "shrink.h"
 #include <assert.h>
-#include <string.h>
+#include <string.h> /* memset, memmove, memcmp, strlen */
 #include <stdint.h>
 
 #ifdef NDEBUG
@@ -26,33 +45,37 @@
 #define DEBUGGING (1)
 #endif
 
-#ifndef STATIC
-#define STATIC /* define as 'static' so big structs are not stored on stack */
+#ifdef USE_STATIC /* large internal buffers are statically allocated */
+#define STATIC static
+#else  /* large internal buffers are allocated on stack */
+#define STATIC auto
 #endif
 
 #define BUILD_BUG_ON(condition)   ((void)sizeof(char[1 - 2*!!(condition)]))
-#define implies(P, Q)             assert(!(P) || (Q)) /* material implication, immaterial if NDEBUG defined */
-#define mutual(P, Q)              (implies((P), (Q)), implies((Q), (P)))
 
                            /* LZSS Parameters */
 #define EI (11)            /* typically 10..13 */
 #define EJ (4)             /* typically 4..5 */
-#define P  (1)             /* If match length <= P then output one character */
+#define P  (2)             /* If match length <= P then output one character */
 #define N  (1 << EI)       /* buffer size */
 #define F  ((1 << EJ) + 1) /* lookahead buffer size */
 #define CH (' ')           /* initial dictionary contents */
                            /* RLE Parameters */
-#define RL   (128)         /* run length */
+#define RL (128)           /* run length */
+
+#define MIN(X, Y) ((X) < (Y) ? (X) : (Y))
+
+enum { REFERENCE, LITERAL };
 
 typedef struct {
-	shrink_t *io;
 	uint8_t buffer[N * 2];
-	unsigned obit_buffer, obit_mask, ibit_buffer, ibit_mask;
+	shrink_t *io;
+	unsigned bit_buffer, bit_mask;
 } lzss_t;
 
-typedef struct { 
-	unsigned char *b; 
-	size_t used, length; 
+typedef struct {
+	unsigned char *b;
+	size_t used, length;
 } buffer_t;
 
 static int buffer_get(void *in) {
@@ -73,23 +96,23 @@ static int buffer_put(const int ch, void *out) {
 	return b->b[b->used++] = ch;
 }
 
-static int get(shrink_t *io) { 
-	assert(io); 
-	const int r = io->get(io->in); 
+static int get(shrink_t *io) {
+	assert(io);
+	const int r = io->get(io->in);
 	io->read += r >= 0;
 	assert((r >= 0 && r <= 255) || r == -1);
 	return r;
 }
 
-static int put(const int ch, shrink_t *io) { 
+static int put(const int ch, shrink_t *io) {
 	assert(io);
-	const int r = io->put(ch, io->out); 
+	const int r = io->put(ch, io->out);
 	io->wrote += r >= 0;
 	assert((r >= 0 && r <= 255) || r == -1);
 	return r;
 }
 
-static int dictionary(lzss_t *l, const size_t length) {
+static int init(lzss_t *l, const size_t length) {
 	assert(l);
 	assert(length < sizeof l->buffer);
 	memset(l->buffer, CH, length);
@@ -98,30 +121,30 @@ static int dictionary(lzss_t *l, const size_t length) {
 
 static int putbit(lzss_t *l, const unsigned one) {
 	assert(l);
-	assert(l->obit_mask <= 128u);
-	assert((l->obit_buffer & ~0xFFu) == 0);
+	assert(l->bit_mask <= 128u);
+	assert((l->bit_buffer & ~0xFFu) == 0);
 	if (one)
-		l->obit_buffer |= l->obit_mask;
-	if ((l->obit_mask >>= 1) == 0) {
-		if (put(l->obit_buffer, l->io) < 0)
+		l->bit_buffer |= l->bit_mask;
+	if ((l->bit_mask >>= 1) == 0) {
+		if (put(l->bit_buffer, l->io) < 0)
 			return -1;
-		l->obit_buffer = 0;
-		l->obit_mask = 128;
+		l->bit_buffer = 0;
+		l->bit_mask = 128;
 	}
 	return 0;
 }
 
 static int flush_bit_buffer(lzss_t *l) {
 	assert(l);
-	if (l->obit_mask != 128)
-		if (put(l->obit_buffer, l->io) < 0)
+	if (l->bit_mask != 128)
+		if (put(l->bit_buffer, l->io) < 0)
 			return -1;
 	return 0;
 }
 
 static int output_literal(lzss_t *l, const unsigned c) {
 	assert(l);
-	if (putbit(l, 1) < 0)
+	if (putbit(l, LITERAL) < 0)
 		return -1;
 	for (unsigned mask = 256; mask >>= 1; )
 		if (putbit(l, c & mask) < 0)
@@ -131,7 +154,7 @@ static int output_literal(lzss_t *l, const unsigned c) {
 
 static int output_reference(lzss_t *l, const unsigned x, const unsigned y) {
 	assert(l);
-	if (putbit(l, 0) < 0)
+	if (putbit(l, REFERENCE) < 0)
 		return -1;
 	for (unsigned mask = N; mask >>= 1;)
 		if (putbit(l, x & mask) < 0)
@@ -142,13 +165,13 @@ static int output_reference(lzss_t *l, const unsigned x, const unsigned y) {
 	return 0;
 }
 
-int shrink_lzss_encode(shrink_t *io) {
+static int shrink_lzss_encode(shrink_t *io) {
 	assert(io);
-	STATIC lzss_t l = { .obit_mask = 128, };
+	STATIC lzss_t l = { .bit_mask = 128, };
 	l.io = io; /* need because of STATIC */
 	long bufferend = 0, c = 0;
 
-	if (dictionary(&l, N - F) < 0)
+	if (init(&l, N - F) < 0)
 		return -1;
 
 	for (bufferend = N - F; bufferend < N * 2; bufferend++) {
@@ -202,30 +225,31 @@ static int getnbit(lzss_t *l, unsigned n) {
 	unsigned x = 0;
 	assert(n < 16u);
 	for (unsigned i = 0; i < n; i++) {
-		if (l->ibit_mask == 0u) {
+		if (l->bit_mask == 0u) {
 			const int ch = get(l->io);
 			if (ch < 0)
 				return -1;
-			l->ibit_buffer = ch;
-			l->ibit_mask   = 128;
+			l->bit_buffer = ch;
+			l->bit_mask   = 128;
 		}
 		x <<= 1;
-		if (l->ibit_buffer & l->ibit_mask)
+		if (l->bit_buffer & l->bit_mask)
 			x++;
-		l->ibit_mask >>= 1;
+		l->bit_mask >>= 1;
 	}
 	return x;
 }
 
-int shrink_lzss_decode(shrink_t *io) {
+static int shrink_lzss_decode(shrink_t *io) {
 	assert(io);
-	STATIC lzss_t l = { .obit_mask = 128, };
+	STATIC lzss_t l = { .bit_mask = 0 };
 	l.io = io; /* need because of STATIC */
-	if (dictionary(&l, N - F) < 0)
+
+	if (init(&l, N - F) < 0)
 		return -1;
 
 	for (long r = N - F, c = 0; (c = getnbit(&l, 1)) >= 0; ) {
-		if (c) {
+		if (c == LITERAL) { /* control bit */
 			if ((c = getnbit(&l, 8)) < 0)
 				break;
 			if (put(c, l.io) != c)
@@ -233,7 +257,7 @@ int shrink_lzss_decode(shrink_t *io) {
 			l.buffer[r++] = c;
 			r &= (N - 1);
 			continue;
-		} 
+		}
 		const int i = getnbit(&l, EI);
 		if (i < 0)
 			break;
@@ -251,7 +275,7 @@ int shrink_lzss_decode(shrink_t *io) {
 	return 0;
 }
 
-static int rle_write_buf(shrink_t *io, uint8_t *buf, int idx) { 
+static int rle_write_buf(shrink_t *io, uint8_t *buf, int idx) {
 	assert(io);
 	assert(buf);
 	assert(idx >= 0);
@@ -263,7 +287,7 @@ static int rle_write_buf(shrink_t *io, uint8_t *buf, int idx) {
 	return 0;
 }
 
-int shrink_rle_encode(shrink_t *io) {
+static int shrink_rle_encode(shrink_t *io) {
 	assert(io);
 	uint8_t buf[RL] = { 0 }; /* buffer to store data with no runs */
 	int idx = 0, prev = -1; /* no previously read in char can be EOF */
@@ -302,7 +326,7 @@ end: /* no more input */
 	return 0;
 }
 
-int shrink_rle_decode(shrink_t *io) { 
+static int shrink_rle_decode(shrink_t *io) {
 	assert(io);
 	for (int c = 0, count = 0; (c = get(io)) >= 0;) {
 		if (c > RL) { /* process run of literal data */
@@ -314,7 +338,7 @@ int shrink_rle_decode(shrink_t *io) {
 					return -1;
 			}
 			continue;
-		} 
+		}
 		/* process repeated byte */
 		count = c + 1;
 		if ((c = get(io)) < 0)
@@ -326,78 +350,58 @@ int shrink_rle_decode(shrink_t *io) {
 	return 0;
 }
 
-static int buffer_op(const int encode, const int lzss, const char *in, const size_t inlength, char *out, size_t *outlength) {
+int shrink_buffer(const int codec, const int encode, const char *in, const size_t inlength, char *out, size_t *outlength) {
+	assert(codec == CODEC_RLE || codec == CODEC_LZSS);
+	assert(encode == 0 || encode == 1);
 	assert(in);
 	assert(out);
 	assert(outlength);
 	buffer_t ib = { .b = (unsigned char*)in,  .used = 0, .length = inlength };
 	buffer_t ob = { .b = (unsigned char*)out, .used = 0, .length = *outlength };
-	shrink_t l = { .get = buffer_get, .put = buffer_put, .in  = &ib, .out = &ob, };
-	const int r = (encode ? (lzss ? shrink_lzss_encode : shrink_rle_encode) : (lzss ? shrink_lzss_decode : shrink_rle_decode))(&l);
-	*outlength = r == 0 ? l.wrote : 0;
+	shrink_t io = { .get = buffer_get, .put = buffer_put, .in  = &ib, .out = &ob, };
+	const int r = (encode ?
+			(codec == CODEC_LZSS ? shrink_lzss_encode : shrink_rle_encode) :
+			(codec == CODEC_LZSS ? shrink_lzss_decode : shrink_rle_decode))(&io);
+	*outlength = r == 0 ? io.wrote : 0;
 	return r;
 }
 
-int shrink_lzss_decode_buffer(const char *in, const size_t inlength, char *out, size_t *outlength) {
-	return buffer_op(0, 1, in, inlength, out, outlength);
+int shrink(shrink_t *io, const int codec, const int encode) {
+	assert(io);
+	assert(encode == 0 || encode == 1);
+	assert(codec == CODEC_RLE || codec == CODEC_LZSS);
+	return (encode ?
+		(codec == CODEC_LZSS ? shrink_lzss_encode : shrink_rle_encode) :
+		(codec == CODEC_LZSS ? shrink_lzss_decode : shrink_rle_decode))(io);
 }
-
-int shrink_lzss_encode_buffer(const char *in, const size_t inlength, char *out, size_t *outlength) {
-	return buffer_op(1, 1, in, inlength, out, outlength);
-}
-
-int shrink_rle_decode_buffer(const char *in, const size_t inlength, char *out, size_t *outlength) {
-	return buffer_op(0, 0, in, inlength, out, outlength);
-}
-
-int shrink_rle_encode_buffer(const char *in, const size_t inlength, char *out, size_t *outlength) {
-	return buffer_op(1, 0, in, inlength, out, outlength);
-}
-
-#if 0
-#include <stdio.h>
-#include <ctype.h>
-
-int dhex(FILE *out, char *b, size_t l) {
-	assert(out);
-	assert(b);
-	unsigned char *m = (unsigned char*)b;
-	for (size_t i = 0; i < l; i += 16) {
-		fprintf(out, "%04X:\t", (unsigned)i);
-		for (size_t j = i; j < l && j < i + 16; j++)
-			fprintf(out, "%02X ", m[j]);
-		fputs("\t|", out);
-		for (size_t j = i; j < l && j < i + 16; j++)
-			fprintf(out, "%c", isgraph(m[j]) ? m[j] : '.');
-		fputs("|\n", out);
-	}
-	fprintf(out, "\n");
-	return 0;
-}
-#endif
 
 #define TBUFL (256u)
 
-static inline int test(const int lzss, const char *msg, const size_t msglen) {
+static inline int test(const int codec, const char *msg, const size_t msglen) {
 	assert(msg);
 	char compressed[TBUFL] = { 0 }, decompressed[TBUFL] = { 0 };
 	size_t complen = sizeof compressed, decomplen = sizeof decompressed;
 	if (msglen > TBUFL)
 		return -1;
-	const int r1 = (lzss ? shrink_lzss_encode_buffer : shrink_rle_encode_buffer)(msg, msglen, compressed, &complen);
-	if (r1 < 0) 
+	const int r1 = shrink_buffer(codec, 1, msg,        msglen,  compressed,   &complen);
+	if (r1 < 0)
 		return -2;
-	const int r2 = (lzss ? shrink_lzss_decode_buffer : shrink_rle_decode_buffer)(compressed, complen, decompressed, &decomplen);
-	if (r2 < 0) 
+	const int r2 = shrink_buffer(codec, 0, compressed, complen, decompressed, &decomplen);
+	if (r2 < 0)
 		return -3;
-	if (msglen != decomplen) 
+	if (msglen != decomplen)
 		return -4;
-	if (memcmp(msg, decompressed, msglen)) 
+	if (memcmp(msg, decompressed, msglen))
 		return -5;
 	return 0;
 }
 
 int shrink_tests(void) {
+	BUILD_BUG_ON(EI > 15); /* 1 << EI would be larger than smallest possible INT_MAX */
+	BUILD_BUG_ON(EI < 6);  /* no point in encoding */
+	BUILD_BUG_ON(EJ >= EI);
+	BUILD_BUG_ON(RL > 128);
+
 	if (!DEBUGGING)
 		return 0;
 	char *ts[] = {
@@ -410,14 +414,12 @@ int shrink_tests(void) {
 		I do not like green eggs and ham.\n"
 	};
 
-	for (size_t i = 0; i < (sizeof ts / sizeof (ts[0])); i++) {
-		int r = 0;
-		if ((r = test(0, ts[i], strlen(ts[i]) + 1)) < 0)
-			return r;
-		if ((r = test(1, ts[i], strlen(ts[i]) + 1)) < 0)
-			return r;
-	}
-
+	for (size_t i = 0; i < (sizeof ts / sizeof (ts[0])); i++)
+		for (int j = CODEC_RLE; j <= CODEC_LZSS; j++) {
+			const int r = test(CODEC_RLE, ts[i], strlen(ts[i]) + 1);
+			if (r < 0)
+				return r;
+		}
 	return 0;
 }
 

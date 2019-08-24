@@ -6,21 +6,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static int file_get(void *in) { 
-	assert(in); 
-	return fgetc((FILE*)in); 
+static int file_get(void *in) {
+	assert(in);
+	return fgetc((FILE*)in);
 }
 
-static int file_put(int ch, void *out) { 
-	assert(out); 
-	return fputc(ch, (FILE*)out); 
+static int file_put(int ch, void *out) {
+	assert(out);
+	return fputc(ch, (FILE*)out);
 }
 
-static int stats(shrink_t *l, const int encode, const int lzss, FILE *out) {
+static int stats(shrink_t *l, const int codec, const int encode, FILE *out) {
 	assert(l);
-	const char *codec = lzss ? "lzss" : "rle";
+	const char *name = codec ? "lzss" : "rle";
 	const char *shrink = encode ? "shrink" : "expand";
-	fprintf(out, "codec: %s/%s\n",  codec, shrink);
+	fprintf(out, "codec: %s/%s\n",  name, shrink);
 	fprintf(out, "text:  %u bytes\n", (unsigned)l->read);
 	if (l->read) {
 		const double wrote = l->wrote, read = l->read;
@@ -30,13 +30,13 @@ static int stats(shrink_t *l, const int encode, const int lzss, FILE *out) {
 	return 0;
 }
 
-static int file_op(int encode, int lzss, int verbose, FILE *in, FILE *out) {
+static int file_op(int codec, int encode, int verbose, FILE *in, FILE *out) {
 	assert(in);
 	assert(out);
-	shrink_t l = { .get = file_get, .put = file_put, .in  = in, .out = out, };
-	const int r = (encode ? (lzss ? shrink_lzss_encode : shrink_rle_encode) : (lzss ? shrink_lzss_decode : shrink_rle_decode))(&l);
+	shrink_t io = { .get = file_get, .put = file_put, .in  = in, .out = out, };
+	const int r = shrink(&io, codec, encode);
 	if (!r && verbose)
-		stats(&l, encode, lzss, stderr);
+		stats(&io, codec, encode, stderr);
 	return r;
 }
 
@@ -68,7 +68,7 @@ static FILE *fopen_or_die(const char *name, const char *mode) {
 	errno = 0;
 	FILE *f = fopen(name, mode);
 	if (!f) {
-		fprintf(stderr, "unable to open file '%s' (mode = %s): %s", 
+		fprintf(stderr, "unable to open file '%s' (mode = %s): %s",
 				name, mode, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
@@ -77,7 +77,7 @@ static FILE *fopen_or_die(const char *name, const char *mode) {
 
 int main(int argc, char **argv) {
 	FILE *in = stdin, *out = stdout;
-	int enc = 1, lzss = 1, i = 1, verbose = 0;
+	int enc = 1, lzss = CODEC_LZSS, i = 1, verbose = 0;
 	for (i = 1; i < argc; i++) {
 		if (argv[i][0] != '-')
 			break;
@@ -98,7 +98,7 @@ done:
 	if (i < argc) {  in = fopen_or_die(argv[i++], "rb"); }
 	if (i < argc) { out = fopen_or_die(argv[i++], "wb"); }
 
-	const int r = file_op(enc, lzss, verbose, in, out);
+	const int r = file_op(lzss, enc, verbose, in, out);
 	fclose(in);
 	fclose(out);
 	return !!r;

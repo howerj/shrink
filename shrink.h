@@ -11,28 +11,23 @@ extern "C" {
 
 #include <stddef.h>
 
-#ifndef COMPRESS_API 
-#define COMPRESS_API /* Used to apply attributes to exported functions */
+#ifndef SHRINK_API
+#define SHRINK_API /* Used to apply attributes to exported functions */
 #endif
 
 typedef struct {
-	int (*get)(void *in);          /* return negative on error, a byte otherwise */
+	int (*get)(void *in);          /* return negative on error, a byte (0-255) otherwise */
 	int (*put)(int ch, void *out); /* return ch on no error */
 	void *in, *out;                /* passed to 'get' and 'put' respectively */
 	size_t read, wrote;            /* read only, bytes 'get' and 'put' respectively */
-} shrink_t;
+} shrink_t; /**< I/O abstraction, use to redirect to wherever you want... */
 
-COMPRESS_API int shrink_lzss_decode(shrink_t *io);
-COMPRESS_API int shrink_lzss_encode(shrink_t *io);
-COMPRESS_API int shrink_lzss_decode_buffer(const char *in, size_t inlength, char *out, size_t *outlength);
-COMPRESS_API int shrink_lzss_encode_buffer(const char *in, size_t inlength, char *out, size_t *outlength);
+enum { CODEC_RLE, CODEC_LZSS };
 
-COMPRESS_API int shrink_rle_decode(shrink_t *io);
-COMPRESS_API int shrink_rle_encode(shrink_t *io);
-COMPRESS_API int shrink_rle_decode_buffer(const char *in, size_t inlength, char *out, size_t *outlength);
-COMPRESS_API int shrink_rle_encode_buffer(const char *in, size_t inlength, char *out, size_t *outlength);
-
-COMPRESS_API int shrink_tests(void);
+/* negate on error, zero on success */
+SHRINK_API int shrink(shrink_t *io, int codec, int encode);
+SHRINK_API int shrink_buffer(int codec, int encode, const char *in, size_t inlength, char *out, size_t *outlength);
+SHRINK_API int shrink_tests(void);
 
 #ifdef __cplusplus
 }

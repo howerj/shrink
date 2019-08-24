@@ -1,7 +1,10 @@
-*.o
 *.a
-*.smol
 *.big
+*.bin
+*.htm
+*.lzss
+*.o
 *.rle
+*.smol
 *.wle
 shrink
