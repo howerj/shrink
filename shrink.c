@@ -10,6 +10,7 @@
  *
  * TODO: RLE Encoding is somewhat suboptimal, it needs fixing. It
  * also should be made to be configurable.
+ * TODO: Investigate LZSS buffer size.
  *
  * Some ideas for improvement:
  *
@@ -207,7 +208,7 @@ static int shrink_lzss_encode(shrink_t *io) {
 				x = i; /* match position */
 				y = j; /* match length */
 			}
-			if (y > (F - 1)) /* maximum length reach, stop search */
+			if (y > (F - 1u)) /* maximum length reach, stop search */
 				break;
 		}
 		if (y <= P) { /* is match worth it? */
@@ -215,21 +216,27 @@ static int shrink_lzss_encode(shrink_t *io) {
 			if (output_literal(&l, ch) < 0) /* Not worth it */
 				return -1;
 		} else { /* L'Oreal: Because you're worth it. */
-			if (output_reference(&l, x & (N - 1), y - 2) < 0)
+			if (output_reference(&l, x & (N - 1u), y - 2u) < 0)
 				return -1;
 		}
+		assert(r + y > r);
+		assert(s + y > s);
 		r += y;
 		s += y;
 		if (r >= ((N * 2u) - F)) { /* move and refill buffer */
 			BUILD_BUG_ON(sizeof l.buffer < N);
 			memmove(l.buffer, l.buffer + N, N);
+			assert(bufferend - N < bufferend);
+			assert(r - N < r);
+			assert(s - N < s);
 			bufferend -= N;
 			r -= N;
 			s -= N;
-			while (bufferend < (N * 2)) {
+			while (bufferend < (N * 2u)) {
        				int c = get(l.io);
 				if (c < 0)
 					break;
+				assert(bufferend < sizeof(l.buffer));
 				l.buffer[bufferend++] = c;
 			}
 		}
@@ -369,7 +376,6 @@ static int shrink_rle_decode(shrink_t *io) {
 
 int shrink_buffer(const int codec, const int encode, const char *in, const size_t inlength, char *out, size_t *outlength) {
 	assert(codec == CODEC_RLE || codec == CODEC_LZSS);
-	assert(encode == 0 || encode == 1);
 	assert(in);
 	assert(out);
 	assert(outlength);
@@ -385,7 +391,6 @@ int shrink_buffer(const int codec, const int encode, const char *in, const size_
 
 int shrink(shrink_t *io, const int codec, const int encode) {
 	assert(io);
-	assert(encode == 0 || encode == 1);
 	assert(codec == CODEC_RLE || codec == CODEC_LZSS);
 	return (encode ?
 		(codec == CODEC_LZSS ? shrink_lzss_encode : shrink_rle_encode) :
