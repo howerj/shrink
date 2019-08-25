@@ -1,10 +1,16 @@
 *.a
 *.big
 *.bin
+*.gcda
+*.gcno
+*.gcov
 *.htm
 *.lzss
 *.o
+*.out
 *.rle
 *.smol
+*.tmp
+*.txt
 *.wle
 shrink

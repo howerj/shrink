@@ -16,8 +16,8 @@
 
 This project provides [LZSS][] and [RLE][] compression routines, neither of which
 do any allocation internally. The project provides the routines as a library
-and as a utility program. The library is suitable for inclusion in an embedded
-project.
+and as a utility program. The library is suitable for inclusion in an
+[embedded][] project or product.
 
 # License
 
@@ -111,8 +111,16 @@ tests completed successfully, and a negative value indicates failure.
 	int shrink_tests(void);
 
 The library has minimal dependencies, just some memory related functions
-(specifically [memset][], [memmove][], and if tests are compiled in then
-[memcmp][] and [strlen][] are also used). [assert][] is also used.
+(specifically [memset][], [memmove][], [memchr][], and if tests are compiled 
+in then [memcmp][] and [strlen][] are also used). [assert][] is also used. If 
+you have to hand roll your own memory functions in an [embedded][] system, do 
+not implement these functions naively - look into how optimize these functions,
+they will improve the performance of this library (and the rest of your
+system). 
+
+The [CODEC][] is especially sensitive to the speed at which [memchr][] matches
+characters, the [musl][] C library shows that optimizing these very simple
+functions is non-trivial.
 
 When the [LZSS][] [CODEC][] is used a fairly large buffer (~4KiB depending on
 options) is allocated on the stack. The [RLE][] [CODEC][] uses comparatively
@@ -205,11 +213,11 @@ And a literal is encoded as:
 The encoder works like so:
 
 1. The dictionary is initialized, it must be initialized to the same value as
-   the decoder is. 
+   the decoder is.
 2. The input buffer is filled up to the maximal string match
 3. Search for the longest match in the dictionary and if it equal to or larger
-   than the minimal match length output a reference (a position and length) to 
-   that match, else write a literal value to the output. The output is 
+   than the minimal match length output a reference (a position and length) to
+   that match, else write a literal value to the output. The output is
    prefixed with a single bit indicating whether the output is a reference or
    a literal.
 4. Move the emit output from the input buffer into the dictionary.
@@ -227,16 +235,36 @@ The decoder:
    of the oldest characters that were in there.
 4. Repeat from step 2 until all input is consumed.
 
+From the 'comp.compression' FAQ, [part 2][], the compression/encoder algorithm
+is described by the following succinct pseudocode:
+
+	while (lookAheadBuffer not empty) {
+		get a pointer {position, match} to the longest match
+		in the window for the lookahead buffer;
+
+		if (length > MINIMUM_MATCH_LENGTH) {
+			output a ( position, length ) pair;
+			shift the window length characters along;
+		} else {
+			output the first character in the lookahead buffer;
+			shift the window 1 character along;
+		}
+	}
+
+Decompression is much fast than compression, compression is limited by the
+speed of the search for the longest match. Speeding up the match greatly
+increases the speed of compression.
+
 ## Other Libraries
 
-* A library for compressing mainly (English) text 
+* A library for compressing mainly (English) text
   <https://github.com/antirez/smaz>
 * [LZSS][] source this library was based by from Haruhiko Okumura
   <https://oku.edu.mie-u.ac.jp/~okumura/compression/lzss.c>, which says it
   also in the public domain.
-* This stackoverflow post asks for similar, unencumbered compression 
+* This stackoverflow post asks for similar, unencumbered compression
   libraries, for embedded use: <https://stackoverflow.com/questions/3767640>
-  
+
 [LZSS]: https://en.wikipedia.org/wiki/Lempel%E2%80%93Ziv%E2%80%93Storer%E2%80%93Szymanski
 [RLE]: https://en.wikipedia.org/wiki/Run-length_encoding
 [GNU Make]: https://www.gnu.org/software/make/
@@ -257,10 +285,14 @@ The decoder:
 [memset]:  http://www.cplusplus.com/reference/cstring/memset/
 [memmove]: http://www.cplusplus.com/reference/cstring/memmove/
 [memcmp]: http://www.cplusplus.com/reference/cstring/memcmp/
+[memchr]: http://www.cplusplus.com/reference/cstring/memchr/
 [strlen]: http://www.cplusplus.com/reference/cstring/strlen/
 [assert]: http://www.cplusplus.com/reference/cassert/assert/
 [reentrant]: https://en.wikipedia.org/wiki/Reentrancy_(computing)
 [thread safe]: https://en.wikipedia.org/wiki/Thread_safety
 [FILE]: https://en.cppreference.com/w/c/io
+[part 2]: http://www.faqs.org/faqs/compression-faq/part2/
+[embedded]: https://en.wikipedia.org/wiki/Embedded_system
+[musl]: https://www.musl-libc.org/download.html
 
 <style type="text/css">body{margin:40px auto;max-width:850px;line-height:1.6;font-size:16px;color:#444;padding:0 10px}h1,h2,h3{line-height:1.2}table {width: 100%; border-collapse: collapse;}table, th, td{border: 1px solid black;}code { color: #091992; } </style>

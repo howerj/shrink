@@ -1,4 +1,4 @@
-CFLAGS=-std=c99 -Wall -Wextra -pedantic -O2 -pg
+CFLAGS=-std=c99 -Wall -Wextra -pedantic -g -O2
 
 .PHONY: clean all test check performance docs
 
@@ -14,7 +14,8 @@ ${TARGET}.o: ${TARGET}.c ${TARGET}.h
 
 main.o: main.c lib${TARGET}.a ${TARGET}.h
 
-${TARGET}: lib${TARGET}.a main.o
+${TARGET}: main.o lib${TARGET}.a
+	${CC} ${CFLAGS} $^ -o $@
 
 %.lzss %.big: ${TARGET} %
 	./${TARGET} -v -c ${FILE} ${FILE}.lzss
@@ -37,7 +38,9 @@ zero.bin:
 
 performance: ${TARGET} zero.bin
 	time -p ./${TARGET} -v -c zero.bin zero.lzss
+	time -p ./${TARGET} -v -d zero.lzss zero.big
 	time -p ./${TARGET} -r -v -c zero.bin zero.rle
+	time -p ./${TARGET} -r -v -d zero.rle zero.wle
 
 %.htm: %.md
 	markdown $< > $@
