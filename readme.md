@@ -111,12 +111,12 @@ tests completed successfully, and a negative value indicates failure.
 	int shrink_tests(void);
 
 The library has minimal dependencies, just some memory related functions
-(specifically [memset][], [memmove][], [memchr][], and if tests are compiled 
-in then [memcmp][] and [strlen][] are also used). [assert][] is also used. If 
-you have to hand roll your own memory functions in an [embedded][] system, do 
+(specifically [memset][], [memmove][], [memchr][], and if tests are compiled
+in then [memcmp][] and [strlen][] are also used). [assert][] is also used. If
+you have to hand roll your own memory functions in an [embedded][] system, do
 not implement these functions naively - look into how optimize these functions,
 they will improve the performance of this library (and the rest of your
-system). 
+system).
 
 The [CODEC][] is especially sensitive to the speed at which [memchr][] matches
 characters, the [musl][] C library shows that optimizing these very simple
@@ -257,13 +257,44 @@ increases the speed of compression.
 
 ## Other Libraries
 
-* A library for compressing mainly (English) text
-  <https://github.com/antirez/smaz>
 * [LZSS][] source this library was based by from Haruhiko Okumura
   <https://oku.edu.mie-u.ac.jp/~okumura/compression/lzss.c>, which says it
   also in the public domain.
 * This stackoverflow post asks for similar, unencumbered compression
   libraries, for embedded use: <https://stackoverflow.com/questions/3767640>
+* A library for compressing mainly (English) text
+  <https://github.com/antirez/smaz>
+
+From <https://en.wikibooks.org/wiki/Data_Compression/Dictionary_compression>
+and <https://stackoverflow.com/questions/33331552>
+
+	Smaz is a simple compression library suitable for compressing very
+	short strings, such as URLs and single English sentences and short
+	HTML files.[2]
+
+	Much like Pike's algorithm, Smaz has a hard-wired constant built-in
+	codebook of 254 common English words, word fragments, bigrams, and the
+	lowercase letters (except j, k, q). The inner loop of the Smaz decoder
+	is very simple:
+
+		* Fetch the next byte X from the compressed file.
+		 1. Is X == 254? Single byte literal: fetch the next byte L,
+		    and pass it straight through to the decoded text.
+		 2. Is X == 255? Literal string: fetch the next byte L, then
+		    pass the following L+1 bytes straight through to the
+		    decoded text.
+		 3. Any other value of X: lookup the X'th "word" in the
+		    codebook (that "word" can be from 1 to 5 letters), and
+		    copy that word to the decoded text.
+		* Repeat until there are no more compressed bytes left in
+		  the compressed file.
+
+	Because the codebook is constant, the Smaz decoder is unable to "learn"
+	new words and compress them, no matter how often they appear in the
+	original text.
+
+It might be worth implementing a fixed dictionary [CODEC][] system as part of
+this library.
 
 [LZSS]: https://en.wikipedia.org/wiki/Lempel%E2%80%93Ziv%E2%80%93Storer%E2%80%93Szymanski
 [RLE]: https://en.wikipedia.org/wiki/Run-length_encoding

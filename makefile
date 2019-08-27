@@ -34,13 +34,16 @@ check:
 	cppcheck --enable=all *.c
 
 zero.bin:
-	dd if=/dev/zero of=zero.bin count=2048
+	dd if=/dev/zero of=$@ count=2048
 
-performance: ${TARGET} zero.bin
-	time -p ./${TARGET} -v -c zero.bin zero.lzss
-	time -p ./${TARGET} -v -d zero.lzss zero.big
-	time -p ./${TARGET} -r -v -c zero.bin zero.rle
-	time -p ./${TARGET} -r -v -d zero.rle zero.wle
+random.bin:
+	dd if=/dev/urandom of=$@ count=2048
+
+performance: zero.bin ${TARGET}
+	./${TARGET} -v -c zero.bin zero.lzss
+	./${TARGET} -v -d zero.lzss zero.big
+	./${TARGET} -r -v -c zero.bin zero.rle
+	./${TARGET} -r -v -d zero.rle zero.wle
 
 %.htm: %.md
 	markdown $< > $@

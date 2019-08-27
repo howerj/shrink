@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #define UNUSED(X) ((void)(X))
 
@@ -13,7 +14,6 @@
 #include <windows.h>
 #include <io.h>
 #include <fcntl.h>
-extern int _fileno(FILE *stream);
 static void binary(FILE *f) { _setmode(_fileno(f), _O_BINARY); }
 #else
 static inline void binary(FILE *f) { UNUSED(f); }
@@ -29,10 +29,12 @@ static int file_put(int ch, void *out) {
 	return fputc(ch, (FILE*)out);
 }
 
-static int stats(shrink_t *l, const int codec, const int encode, FILE *out) {
+static int stats(shrink_t *l, const int codec, const int encode, const double time, FILE *out) {
 	assert(l);
 	const char *name = codec ? "lzss" : "rle";
 	const char *shrink = encode ? "shrink" : "expand";
+	if (fprintf(out, "time:  %g\n", time) < 0)
+		return -1;
 	if (fprintf(out, "codec: %s/%s\n",  name, shrink) < 0)
 		return -1;
 	if (fprintf(out, "text:  %u bytes\n", (unsigned)l->read) < 0)
@@ -50,9 +52,12 @@ static int file_op(int codec, int encode, int verbose, FILE *in, FILE *out) {
 	assert(in);
 	assert(out);
 	shrink_t io = { .get = file_get, .put = file_put, .in  = in, .out = out, };
+	const clock_t begin = clock();
 	const int r = shrink(&io, codec, encode);
+	const clock_t end = clock();
+	const double time = (double)(end - begin) / CLOCKS_PER_SEC;
 	if (!r && verbose)
-		stats(&io, codec, encode, stderr);
+		stats(&io, codec, encode, time, stderr);
 	return r;
 }
 
@@ -63,7 +68,7 @@ static int dump_hex(FILE *d, const char *o, const unsigned long long l) {
 	const unsigned char *p = (unsigned char *)o;
 	static const ull_t inc = 16;
 	for (ull_t i = 0; i < l; i += inc) {
-		fprintf(d, "%04llX:\t", i);
+		fprintf(d, "%04lX:\t", (unsigned long)i);
 		for (ull_t j = i; j < (i + inc); j++)
 			 if ((j < l ? fprintf(d, "%02X ", p[j]) : fputs("   ", d)) < 0)
 				 return -1;
@@ -123,7 +128,7 @@ static FILE *fopen_or_die(const char *name, const char *mode) {
 	errno = 0;
 	FILE *f = fopen(name, mode);
 	if (!f) {
-		fprintf(stderr, "unable to open file '%s' (mode = %s): %s",
+		fprintf(stderr, "unable to open file '%s' (mode = %s): %s\n",
 				name, mode, strerror(errno));
 		exit(EXIT_FAILURE);
 	}

@@ -8,10 +8,6 @@
  * in the public domain, and has been modified since.
  * See <https://oku.edu.mie-u.ac.jp/~okumura/compression/lzss.c>.
  *
- * TODO: RLE Encoding is somewhat suboptimal, it needs fixing. It
- * also should be made to be configurable.
- * TODO: Investigate LZSS buffer size.
- *
  * Some ideas for improvement:
  *
  * - A hash could be calculated on the input and output, for example
@@ -20,6 +16,13 @@
  *   base-64 encoding. The 'shrink_t' structure provides an interface
  *   for creating generic byte filters. A compression related filter
  *   would be Adaptive Huffman Coding, which compliment LZSS well.
+ * - Being able to chain together these filters together arbitrarily
+ *   would greatly increase the utility of this library, the best
+ *   way would be to use coroutines to do so; each filter yielding
+ *   when it needs to perform I/O to the other, however coroutines in
+ *   C either are not portable or make the code ugly depending on
+ *   the implementation of them, see:
+ *   <https://www.chiark.greenend.org.uk/~sgtatham/coroutines.html>
  * - Calculate the maximum compression ratio for each CODEC and provide
  *   functions to retrieve this information.
  * - A custom, fixed, dictionary could be switched into the LZSS
@@ -33,11 +36,10 @@
  * - The library could use more assertions, documentation, testing,
  *   and fuzzing.
  * - As it is not worth encoding matches for small runs, we can
- *   use this to increase the maximum number of matches.
- * - Chain RLE and then LZSS encoding. This could be done externally
- *   to the library as a proof of concept.
+ *   use this to increase the maximum number of matches. (RLE done,
+ *   LZSS needs looking into).
  * - The library could be made to be more (compile time) configurable,
- *   whilst using (compile time) assertions to ensure correctness.  */
+ *   whilst using (compile time) assertions to ensure correctness. */
 
 #include "shrink.h"
 #include <assert.h>
@@ -66,22 +68,27 @@
 #define F  ((1u << EJ) + 1u) /* lookahead buffer size */
 #define CH (' ')             /* initial dictionary contents */
                              /* RLE Parameters */
-#define RL (128)             /* run length */
+#define RL    (128)          /* run length */
+#define ROVER (1)            /* encoding only run lengths greater than ROVER + 1 */
 
 #define MIN(X, Y) ((X) < (Y) ? (X) : (Y))
 
 enum { REFERENCE, LITERAL };
 
 typedef struct {
-	uint8_t buffer[N * 2];
-	shrink_t *io;
-	unsigned bit_buffer, bit_mask;
-} lzss_t;
+	unsigned buffer, mask;
+} bit_buffer_t;
 
 typedef struct {
 	unsigned char *b;
 	size_t used, length;
 } buffer_t;
+
+typedef struct {
+	uint8_t buffer[N * 2];
+	shrink_t *io;
+	bit_buffer_t bit;
+} lzss_t;
 
 static int buffer_get(void *in) {
 	buffer_t *b = in;
@@ -117,6 +124,53 @@ static int put(const int ch, shrink_t *io) {
 	return r;
 }
 
+static int bit_buffer_put_bit(shrink_t *io, bit_buffer_t *bit, const unsigned one) {
+	assert(io);
+	assert(bit);
+	assert(bit->mask <= 128u);
+	assert((bit->buffer & ~0xFFu) == 0);
+	if (one)
+		bit->buffer |= bit->mask;
+	if ((bit->mask >>= 1) == 0) {
+		if (put(bit->buffer, io) < 0)
+			return -1;
+		bit->buffer = 0;
+		bit->mask   = 128;
+	}
+	return 0;
+}
+
+static int bit_buffer_get_n_bits(shrink_t *io, bit_buffer_t *bit, unsigned n) {
+	assert(io);
+	assert(bit);
+	unsigned x = 0;
+	assert(n < 16u);
+	for (unsigned i = 0; i < n; i++) {
+		if (bit->mask == 0u) {
+			const int ch = get(io);
+			if (ch < 0)
+				return -1;
+			bit->buffer = ch;
+			bit->mask   = 128;
+		}
+		x <<= 1;
+		if (bit->buffer & bit->mask)
+			x++;
+		bit->mask >>= 1;
+	}
+	return x;
+}
+
+static int bit_buffer_flush(shrink_t *io, bit_buffer_t *bit) {
+	assert(io);
+	assert(bit);
+	if (bit->mask != 128)
+		if (put(bit->buffer, io) < 0)
+			return -1;
+	bit->mask = 0;
+	return 0;
+}
+
 static int init(lzss_t *l, const size_t length) {
 	assert(l);
 	assert(length < sizeof l->buffer);
@@ -124,55 +178,32 @@ static int init(lzss_t *l, const size_t length) {
 	return 0;
 }
 
-static int putbit(lzss_t *l, const unsigned one) {
-	assert(l);
-	assert(l->bit_mask <= 128u);
-	assert((l->bit_buffer & ~0xFFu) == 0);
-	if (one)
-		l->bit_buffer |= l->bit_mask;
-	if ((l->bit_mask >>= 1) == 0) {
-		if (put(l->bit_buffer, l->io) < 0)
-			return -1;
-		l->bit_buffer = 0;
-		l->bit_mask = 128;
-	}
-	return 0;
-}
-
-static int flush_bit_buffer(lzss_t *l) {
-	assert(l);
-	if (l->bit_mask != 128)
-		if (put(l->bit_buffer, l->io) < 0)
-			return -1;
-	return 0;
-}
-
 static int output_literal(lzss_t *l, const unsigned ch) {
 	assert(l);
-	if (putbit(l, LITERAL) < 0)
+	if (bit_buffer_put_bit(l->io, &l->bit, LITERAL) < 0)
 		return -1;
 	for (unsigned mask = 256; mask >>= 1; )
-		if (putbit(l, ch & mask) < 0)
+		if (bit_buffer_put_bit(l->io, &l->bit, ch & mask) < 0)
 			return -1;
 	return 0;
 }
 
 static int output_reference(lzss_t *l, const unsigned position, const unsigned length) {
 	assert(l);
-	if (putbit(l, REFERENCE) < 0)
+	if (bit_buffer_put_bit(l->io, &l->bit, REFERENCE) < 0)
 		return -1;
 	for (unsigned mask = N; mask >>= 1;)
-		if (putbit(l, position & mask) < 0)
+		if (bit_buffer_put_bit(l->io, &l->bit, position & mask) < 0)
 			return -1;
 	for (unsigned mask = 1 << EJ; mask >>= 1; )
-		if (putbit(l, length & mask) < 0)
+		if (bit_buffer_put_bit(l->io, &l->bit, length & mask) < 0)
 			return -1;
 	return 0;
 }
 
 static int shrink_lzss_encode(shrink_t *io) {
 	assert(io);
-	STATIC lzss_t l = { .bit_mask = 128, };
+	STATIC lzss_t l = { .bit = { .mask = 128 }, };
 	l.io = io; /* need because of STATIC */
 	unsigned bufferend = 0;
 
@@ -233,7 +264,7 @@ static int shrink_lzss_encode(shrink_t *io) {
 			r -= N;
 			s -= N;
 			while (bufferend < (N * 2u)) {
-       				int c = get(l.io);
+				int c = get(l.io);
 				if (c < 0)
 					break;
 				assert(bufferend < sizeof(l.buffer));
@@ -241,40 +272,20 @@ static int shrink_lzss_encode(shrink_t *io) {
 			}
 		}
 	}
-	return flush_bit_buffer(&l);
-}
-
-static int getnbit(lzss_t *l, unsigned n) {
-	assert(l);
-	unsigned x = 0;
-	assert(n < 16u);
-	for (unsigned i = 0; i < n; i++) {
-		if (l->bit_mask == 0u) {
-			const int ch = get(l->io);
-			if (ch < 0)
-				return -1;
-			l->bit_buffer = ch;
-			l->bit_mask   = 128;
-		}
-		x <<= 1;
-		if (l->bit_buffer & l->bit_mask)
-			x++;
-		l->bit_mask >>= 1;
-	}
-	return x;
+	return bit_buffer_flush(l.io, &l.bit);
 }
 
 static int shrink_lzss_decode(shrink_t *io) {
 	assert(io);
-	STATIC lzss_t l = { .bit_mask = 0 };
+	STATIC lzss_t l = { .bit = { .mask = 0 } };
 	l.io = io; /* need because of STATIC */
 
 	if (init(&l, N - F) < 0)
 		return -1;
 
-	for (long r = N - F, c = 0; (c = getnbit(&l, 1)) >= 0; ) {
+	for (long r = N - F, c = 0; (c = bit_buffer_get_n_bits(l.io, &l.bit, 1)) >= 0; ) {
 		if (c == LITERAL) { /* control bit: literal, emit a byte */
-			if ((c = getnbit(&l, 8)) < 0)
+			if ((c = bit_buffer_get_n_bits(l.io, &l.bit, 8)) < 0)
 				break;
 			if (put(c, l.io) != c)
 				return -1;
@@ -282,10 +293,10 @@ static int shrink_lzss_decode(shrink_t *io) {
 			r &= (N - 1u); /* wrap around */
 			continue;
 		}
-		const int i = getnbit(&l, EI); /* position */
+		const int i = bit_buffer_get_n_bits(l.io, &l.bit, EI); /* position */
 		if (i < 0)
 			break;
-		const int j = getnbit(&l, EJ); /* length */
+		const int j = bit_buffer_get_n_bits(l.io, &l.bit, EJ); /* length */
 		if (j < 0)
 			break;
 		for (long k = 0; k <= j + 1; k++) { /* copy (pos,len) to output and dictionary */
@@ -303,6 +314,8 @@ static int rle_write_buf(shrink_t *io, uint8_t *buf, const int idx) {
 	assert(io);
 	assert(buf);
 	assert(idx >= 0);
+	if (idx == 0)
+		return 0;
 	if (put(idx + RL, io) < 0)
 		return -1;
 	for (int i = 0; i < idx; i++)
@@ -311,29 +324,56 @@ static int rle_write_buf(shrink_t *io, uint8_t *buf, const int idx) {
 	return 0;
 }
 
-static int shrink_rle_encode(shrink_t *io) {
+static int rle_write_run(shrink_t *io, const int count, const int ch) {
+	assert(io);
+	assert(ch >= 0 && ch < 256);
+	assert(count >= 0);
+	if (put(count, io) < 0)
+		return -1;
+	if (put(ch, io) < 0)
+		return -1;
+	return 0;
+}
+
+static int shrink_rle_encode(shrink_t *io) { /* this could do with simplifying... */
 	assert(io);
 	uint8_t buf[RL] = { 0 }; /* buffer to store data with no runs */
 	int idx = 0, prev = -1;
 	for (int c = 0; (c = get(io)) >= 0; prev = c) {
 		if (c == prev) { /* encode runs of data */
-			int j = 0;  /* count of runs */
-			if (idx > 1) { /* output any existing data */
-				if (rle_write_buf(io, buf, idx) < 0)
-					return -1;
+			int j = 0, k = 0;  /* count of runs */
+			if (idx == 1 && buf[0] == c) {
+				k++;
 				idx = 0;
 			}
 again:
-			for (j = 0; (c = get(io)) == prev && j < RL; j++)
+			for (j = k; (c = get(io)) == prev && j < RL + ROVER; j++)
 				/*loop does everything*/;
-			if (put(j, io) < 0)
-				return -1;
-			if (put(prev, io) < 0)
-				return -1;
+			k = 0;
+			if (j > ROVER) { /* run length is worth encoding */
+				if (idx >= 1) { /* output any existing data */
+					if (rle_write_buf(io, buf, idx) < 0)
+						return -1;
+					idx = 0;
+				}
+				if (rle_write_run(io, j - ROVER, prev) < 0)
+					return -1;
+			} else { /* run length is not worth encoding */
+				while (j-- >= 0) { /* encode too small run as literal */
+					buf[idx++] = prev;
+					if (idx == (RL - 1)) {
+						if (rle_write_buf(io, buf, idx) < 0)
+							return -1;
+						idx = 0;
+					}
+					assert(idx < (RL - 1));
+				}
+			}
 			if (c < 0)
 				goto end;
-			if (c == prev && j == RL)
+			if (c == prev && j == RL) /* more in current run */
 				goto again;
+			/* fall-through */
 		}
 		buf[idx++] = c;
 		if (idx == (RL - 1)) {
@@ -344,9 +384,8 @@ again:
 		assert(idx < (RL - 1));
 	}
 end: /* no more input */
-	if (idx) /* we might still have something in the buffer though */
-		if (rle_write_buf(io, buf, idx) < 0)
-			return -1;
+	if (rle_write_buf(io, buf, idx) < 0) /* we might still have something in the buffer though */
+		return -1;
 	return 0;
 }
 
@@ -364,7 +403,7 @@ static int shrink_rle_decode(shrink_t *io) {
 			continue;
 		}
 		/* process repeated byte */
-		count = c + 1;
+		count = c + 1 + ROVER;
 		if ((c = get(io)) < 0)
 			return -1;
 		for (int i = 0; i < count; i++)
@@ -421,7 +460,7 @@ static inline int test(const int codec, const char *msg, const size_t msglen) {
 int shrink_tests(void) {
 	BUILD_BUG_ON(EI > 15); /* 1 << EI would be larger than smallest possible INT_MAX */
 	BUILD_BUG_ON(EI < 6);  /* no point in encoding */
-	BUILD_BUG_ON(EJ >= EI);
+	BUILD_BUG_ON(EJ > EI); /* match length needs to be smaller than thing we are matching in */
 	BUILD_BUG_ON(RL > 128);
 	BUILD_BUG_ON((EI + EJ) > 16); /* unsigned and int used, minimum size is 16 bits */
 
