@@ -6,9 +6,11 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <time.h>
 
 #define UNUSED(X) ((void)(X))
+#define CRC_INIT (0xFFFFu)
 
 #ifdef _WIN32 /* Used to unfuck file mode for "Win"dows. Text mode is for losers. */
 #include <windows.h>
@@ -18,6 +20,13 @@ static void binary(FILE *f) { _setmode(_fileno(f), _O_BINARY); }
 #else
 static inline void binary(FILE *f) { UNUSED(f); }
 #endif
+
+typedef struct {
+	int (*get)(void *in);
+	int (*put)(int ch, void *out);
+	void *in, *out;
+	uint16_t hash_in, hash_out;
+} hashed_io_t;
 
 static int file_get(void *in) {
 	assert(in);
@@ -29,10 +38,41 @@ static int file_put(int ch, void *out) {
 	return fputc(ch, (FILE*)out);
 }
 
-static int stats(shrink_t *l, const int codec, const int encode, const double time, FILE *out) {
+static uint16_t crc_update(const uint16_t crc, const uint8_t nb) {
+	uint16_t x = (crc >> 8) ^ nb;
+        x ^= x >> 4;
+	x ^= x << 12;
+	x ^= x << 5;
+        return x ^ (crc << 8);
+}
+
+static int hash_get(void *out) {
+	assert(out);
+	hashed_io_t *h = out;
+	const int r = h->get(h->in);
+	if (r >= 0)
+		h->hash_in = crc_update(h->hash_in, r);
+	return r;
+}
+
+static int hash_put(const int ch, void *out) {
+	assert(out);
+	hashed_io_t *h = out;
+	const int r = h->put(ch, h->out);
+	if (r >= 0)
+		h->hash_out = crc_update(h->hash_out, ch);
+	return r;
+}
+
+static int stats(shrink_t *l, const int codec, const int encode, const int hash, const double time, FILE *out) {
 	assert(l);
 	const char *name = codec ? "lzss" : "rle";
 	const char *shrink = encode ? "shrink" : "expand";
+	if (hash) {
+		hashed_io_t *h = l->in;
+		if (fprintf(out, "hash:  in(0x%04x) / out(0x%04x)\n", h->hash_in, h->hash_out) < 0)
+			return -1;
+	}
 	if (fprintf(out, "time:  %g\n", time) < 0)
 		return -1;
 	if (fprintf(out, "codec: %s/%s\n",  name, shrink) < 0)
@@ -42,22 +82,29 @@ static int stats(shrink_t *l, const int codec, const int encode, const double ti
 	if (l->read) {
 		const double wrote = l->wrote, read = l->read;
 		const double percent = (wrote * 100.0) / read;
-		if (fprintf(out, "code:  %g bytes (%g%%)\n", wrote, percent) < 0)
+		if (fprintf(out, "code:  %.0f bytes (%.2f%%)\n", wrote, percent) < 0)
 			return -1;
 	}
 	return 0;
 }
 
-static int file_op(int codec, int encode, int verbose, FILE *in, FILE *out) {
+static int file_op(int codec, int encode, int hash, int verbose, FILE *in, FILE *out) {
 	assert(in);
 	assert(out);
-	shrink_t io = { .get = file_get, .put = file_put, .in  = in, .out = out, };
+	hashed_io_t hobj = { 
+		.get     = file_get, .put      = file_put,
+		.in      = in,       .out      = out,
+		.hash_in = CRC_INIT, .hash_out = CRC_INIT,
+	};
+	shrink_t unhashed = { .get = file_get, .put = file_put, .in  = in,   .out = out,   };
+	shrink_t hashed   = { .get = hash_get, .put = hash_put, .in = &hobj, .out = &hobj, };
+	shrink_t *io = hash ? &hashed : &unhashed;
 	const clock_t begin = clock();
-	const int r = shrink(&io, codec, encode);
+	const int r = shrink(io, codec, encode);
 	const clock_t end = clock();
 	const double time = (double)(end - begin) / CLOCKS_PER_SEC;
 	if (!r && verbose)
-		stats(&io, codec, encode, time, stderr);
+		stats(io, codec, encode, hash, time, stderr);
 	return r;
 }
 
@@ -102,7 +149,7 @@ static int string_op(int codec, int encode, int verbose, const char *in, FILE *d
 static int usage(FILE *out, const char *arg0) {
 	assert(arg0);
 	static const char *fmt = "\
-usage: %s -[-htdclrs] infile? outfile?\n\n\
+usage: %s -[-htdclrsH] infile? outfile?\n\n\
 Repository: <https://github.com/howerj/shrink>\n\
 Maintainer: Richard James Howe\n\
 License:    Public Domain\n\
@@ -119,6 +166,7 @@ out. Have fun.\n\n\
 \t-d\tdecompress\n\
 \t-l\tuse LZSS\n\
 \t-r\tuse Run Length Encoding\n\
+\t-H\tadd hash to output, implies -v\n\
 \t-s #\thex dump encoded string instead of file I/O\n\n";
 
 	return fprintf(out, fmt, arg0);
@@ -139,7 +187,7 @@ int main(int argc, char **argv) {
 	binary(stdin);
 	binary(stdout);
 	FILE *in = stdin, *out = stdout;
-	int encode = 1, codec = CODEC_LZSS, i = 1, verbose = 0, string = 0;
+	int encode = 1, codec = CODEC_LZSS, i = 1, verbose = 0, string = 0, hash = 0;
 	for (i = 1; i < argc; i++) {
 		if (argv[i][0] != '-')
 			break;
@@ -154,6 +202,7 @@ int main(int argc, char **argv) {
 			case 'l': codec = CODEC_LZSS; break;
 			case 'r': codec = CODEC_RLE; break;
 			case 's': string = 1; break;
+			case 'H': hash = 1; verbose++; break;
 			default: goto done;
 			}
 	}
@@ -174,7 +223,7 @@ done:
 	if (setvbuf(in, outb, _IOFBF, sizeof outb) < 0)
 		return 1;
 
-	const int r = file_op(codec, encode, verbose, in, out);
+	const int r = file_op(codec, encode, hash, verbose, in, out);
 	if (fclose(in) < 0)
 		return 1;
 	if (fclose(out) < 0)

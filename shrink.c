@@ -10,8 +10,10 @@
  *
  * Some ideas for improvement:
  *
- * - A hash could be calculated on the input and output, for example
- *   CCITT-16, and stored in the 'shrink_t' structure.
+ * - A hash could be calculated over the input and the output, the
+ *   best way of doing this would _not_ to do this as part of this 
+ *   library but pass in callbacks and data that would wrap any I/O
+ *   and calculate the hash as well.
  * - Other non-compression related CODECS could be added, for example
  *   base-64 encoding. The 'shrink_t' structure provides an interface
  *   for creating generic byte filters. A compression related filter
@@ -32,7 +34,9 @@
  *   doing this would be to improve I/O speed (perhaps by grouping
  *   control bits, which would allow for byte wise I/O and perhaps
  *   make entropy left on the table easier to exploit) or by increasing
- *   the match search speed, which would be the best option.
+ *   the match search speed, which would be the best option. One way
+ *   of potentially speeding up the search would be to store a hash
+ *   pointer to the first character in a potential match.
  * - The library could use more assertions, documentation, testing,
  *   and fuzzing.
  * - As it is not worth encoding matches for small runs, we can
