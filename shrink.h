@@ -24,7 +24,7 @@ typedef struct {
 
 enum { CODEC_RLE, CODEC_LZSS };
 
-/* negate on error, zero on success */
+/* negative on error, zero on success */
 SHRINK_API int shrink(shrink_t *io, int codec, int encode);
 SHRINK_API int shrink_buffer(int codec, int encode, const char *in, size_t inlength, char *out, size_t *outlength);
 SHRINK_API int shrink_tests(void);

@@ -185,6 +185,10 @@ input for sequences of characters greater than the break-even point and output
 the repetition command, else output a literal run. [LZSS][] requires more
 explanation.
 
+The number of repetitions has 2 added to it, so it can encode between 2 and 129
+characters. There is no point in encoding run lengths less than or equal to 2,
+so this is used to boost the maximum run length.
+
 ## LZSS
 
 [LZSS][] belongs to the [dictionary compression][] family of lossless

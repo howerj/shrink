@@ -417,27 +417,24 @@ static int shrink_rle_decode(shrink_t *io) {
 	return 0;
 }
 
-int shrink_buffer(const int codec, const int encode, const char *in, const size_t inlength, char *out, size_t *outlength) {
-	assert(codec == CODEC_RLE || codec == CODEC_LZSS);
-	assert(in);
-	assert(out);
-	assert(outlength);
-	buffer_t ib = { .b = (unsigned char*)in,  .used = 0, .length = inlength };
-	buffer_t ob = { .b = (unsigned char*)out, .used = 0, .length = *outlength };
-	shrink_t io = { .get = buffer_get, .put = buffer_put, .in  = &ib, .out = &ob, };
-	const int r = (encode ?
-			(codec == CODEC_LZSS ? shrink_lzss_encode : shrink_rle_encode) :
-			(codec == CODEC_LZSS ? shrink_lzss_decode : shrink_rle_decode))(&io);
-	*outlength = r == 0 ? io.wrote : 0;
-	return r;
-}
-
 int shrink(shrink_t *io, const int codec, const int encode) {
 	assert(io);
 	assert(codec == CODEC_RLE || codec == CODEC_LZSS);
 	return (encode ?
 		(codec == CODEC_LZSS ? shrink_lzss_encode : shrink_rle_encode) :
 		(codec == CODEC_LZSS ? shrink_lzss_decode : shrink_rle_decode))(io);
+}
+
+int shrink_buffer(const int codec, const int encode, const char *in, const size_t inlength, char *out, size_t *outlength) {
+	assert(in);
+	assert(out);
+	assert(outlength);
+	buffer_t ib = { .b = (unsigned char*)in,  .used = 0, .length = inlength };
+	buffer_t ob = { .b = (unsigned char*)out, .used = 0, .length = *outlength };
+	shrink_t io = { .get = buffer_get, .put = buffer_put, .in  = &ib, .out = &ob, };
+	const int r = shrink(&io, codec, encode);
+	*outlength = r == 0 ? io.wrote : 0;
+	return r;
 }
 
 #define TBUFL (256u)
