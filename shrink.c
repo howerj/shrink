@@ -13,9 +13,12 @@
  * - A hash could be calculated over the input and the output, the
  *   best way of doing this would _not_ to do this as part of this 
  *   library but pass in callbacks and data that would wrap any I/O
- *   and calculate the hash as well.
+ *   and calculate the hash as well. Other things could be calculated
+ *   in the callback such as byte frequency, which is needed for
+ *   the normal, non-adaptive Huffman encoder.
  * - Other non-compression related CODECS could be added, for example
- *   base-64 encoding. The 'shrink_t' structure provides an interface
+ *   base-64 encoding, or error correcting codes like parity and
+ *   Hamming codes. The 'shrink_t' structure provides an interface
  *   for creating generic byte filters. A compression related filter
  *   would be Adaptive Huffman Coding, which compliment LZSS well.
  * - Being able to chain together these filters together arbitrarily
@@ -30,6 +33,7 @@
  * - A custom, fixed, dictionary could be switched into the LZSS
  *   CODEC. This could be supplied via the API. This could be
  *   encoded in many ways.
+ * - The LZSS compressor might benefit from having the 
  * - The LZSS compressor could do with speeding up. The two ways of
  *   doing this would be to improve I/O speed (perhaps by grouping
  *   control bits, which would allow for byte wise I/O and perhaps
@@ -62,18 +66,20 @@
 #define STATIC auto
 #endif
 
+#define implies(P, Q)             assert(!(P) || (Q)) /* material implication, immaterial if NDEBUG defined */
+#define never                     assert(0)
 #define BUILD_BUG_ON(condition)   ((void)sizeof(char[1 - 2*!!(condition)]))
 
-                             /* LZSS Parameters */
-#define EI (11u)             /* typically 10..13 */
-#define EJ (4u)              /* typically 4..5 */
-#define P  (2u)              /* If match length <= P then output one character */
-#define N  (1u << EI)        /* buffer size */
-#define F  ((1u << EJ) + 1u) /* lookahead buffer size */
-#define CH (' ')             /* initial dictionary contents */
-                             /* RLE Parameters */
-#define RL    (128)          /* run length */
-#define ROVER (1)            /* encoding only run lengths greater than ROVER + 1 */
+                                  /* LZSS Parameters */
+#define EI (11u)                  /* dictionary size: typically 10..13 */
+#define EJ (4u)                   /* match length:    typically 4..5 */
+#define P  (2u)                   /* If match length <= P then output one character */
+#define N  (1u << EI)             /* buffer size */
+#define F  ((1u << EJ) + (P - 1)) /* lookahead buffer size */
+#define CH (' ')                  /* initial dictionary contents */
+                                  /* RLE Parameters */
+#define RL    (128)               /* run length */
+#define ROVER (1)                 /* encoding only run lengths greater than ROVER + 1 */
 
 #define MIN(X, Y) ((X) < (Y) ? (X) : (Y))
 
@@ -194,6 +200,8 @@ static int output_literal(lzss_t *l, const unsigned ch) {
 
 static int output_reference(lzss_t *l, const unsigned position, const unsigned length) {
 	assert(l);
+	assert(position < (1 << EI));
+	assert(length < ((1 << EJ) + P));
 	if (bit_buffer_put_bit(l->io, &l->bit, REFERENCE) < 0)
 		return -1;
 	for (unsigned mask = N; mask >>= 1;)
@@ -243,7 +251,7 @@ static int shrink_lzss_encode(shrink_t *io) {
 				x = i; /* match position */
 				y = j; /* match length */
 			}
-			if (y > (F - 1u)) /* maximum length reach, stop search */
+			if ((y + P - 1) > F) /* maximum length reach, stop search */
 				break;
 		}
 		if (y <= P) { /* is match worth it? */
@@ -251,7 +259,7 @@ static int shrink_lzss_encode(shrink_t *io) {
 			if (output_literal(&l, ch) < 0) /* Not worth it */
 				return -1;
 		} else { /* L'Oreal: Because you're worth it. */
-			if (output_reference(&l, x & (N - 1u), y - 2u) < 0)
+			if (output_reference(&l, x & (N - 1u), y - P) < 0)
 				return -1;
 		}
 		assert(r + y > r);
@@ -303,7 +311,7 @@ static int shrink_lzss_decode(shrink_t *io) {
 		const int j = bit_buffer_get_n_bits(l.io, &l.bit, EJ); /* length */
 		if (j < 0)
 			break;
-		for (long k = 0; k <= j + 1; k++) { /* copy (pos,len) to output and dictionary */
+		for (long k = 0; k < j + P; k++) { /* copy (pos,len) to output and dictionary */
 			c = l.buffer[(i + k) & (N - 1)];
 			if (put(c, l.io) != c)
 				return -1;
@@ -419,10 +427,12 @@ static int shrink_rle_decode(shrink_t *io) {
 
 int shrink(shrink_t *io, const int codec, const int encode) {
 	assert(io);
-	assert(codec == CODEC_RLE || codec == CODEC_LZSS);
-	return (encode ?
-		(codec == CODEC_LZSS ? shrink_lzss_encode : shrink_rle_encode) :
-		(codec == CODEC_LZSS ? shrink_lzss_decode : shrink_rle_decode))(io);
+	switch (codec) {
+	case CODEC_RLE:  return encode ? shrink_rle_encode(io)  : shrink_rle_decode(io);
+	case CODEC_LZSS: return encode ? shrink_lzss_encode(io) : shrink_lzss_decode(io);
+	}
+	never;
+	return -1;
 }
 
 int shrink_buffer(const int codec, const int encode, const char *in, const size_t inlength, char *out, size_t *outlength) {
@@ -463,7 +473,9 @@ int shrink_tests(void) {
 	BUILD_BUG_ON(EI < 6);  /* no point in encoding */
 	BUILD_BUG_ON(EJ > EI); /* match length needs to be smaller than thing we are matching in */
 	BUILD_BUG_ON(RL > 128);
+	BUILD_BUG_ON(P  <= 1);
 	BUILD_BUG_ON((EI + EJ) > 16); /* unsigned and int used, minimum size is 16 bits */
+	BUILD_BUG_ON((N - 1) & N); /* N must be power of 2 */
 
 	if (!DEBUGGING)
 		return 0;
