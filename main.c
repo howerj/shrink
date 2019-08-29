@@ -149,7 +149,7 @@ static int string_op(int codec, int encode, int verbose, const char *in, FILE *d
 static int usage(FILE *out, const char *arg0) {
 	assert(arg0);
 	static const char *fmt = "\
-usage: %s -[-htdclrsH] infile? outfile?\n\n\
+usage: %s -[-htdclrmsH] infile? outfile?\n\n\
 Repository: <https://github.com/howerj/shrink>\n\
 Maintainer: Richard James Howe\n\
 License:    Public Domain\n\
@@ -164,8 +164,9 @@ out. Have fun.\n\n\
 \t-v\tverbose\n\
 \t-c\tcompress\n\
 \t-d\tdecompress\n\
-\t-l\tuse LZSS\n\
+\t-l\tuse LZSS Dictionary Encoding\n\
 \t-r\tuse Run Length Encoding\n\
+\t-m\tuse Move To Front Encoding\n\
 \t-H\tadd hash to output, implies -v\n\
 \t-s #\thex dump encoded string instead of file I/O\n\n";
 
@@ -201,6 +202,7 @@ int main(int argc, char **argv) {
 			case 'c': encode = 1; break;
 			case 'l': codec = CODEC_LZSS; break;
 			case 'r': codec = CODEC_RLE; break;
+			case 'm': codec = CODEC_MTF; break;
 			case 's': string = 1; break;
 			case 'H': hash = 1; verbose++; break;
 			default: goto done;

@@ -22,7 +22,7 @@ typedef struct {
 	size_t read, wrote;            /* read only, bytes 'get' and 'put' respectively */
 } shrink_t; /**< I/O abstraction, use to redirect to wherever you want... */
 
-enum { CODEC_RLE, CODEC_LZSS };
+enum { CODEC_RLE, CODEC_LZSS, CODEC_MTF };
 
 /* negative on error, zero on success */
 SHRINK_API int shrink(shrink_t *io, int codec, int encode);

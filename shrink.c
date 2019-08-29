@@ -13,7 +13,8 @@
  * - A hash could be calculated over the input and the output, the
  *   best way of doing this would _not_ to do this as part of this 
  *   library but pass in callbacks and data that would wrap any I/O
- *   and calculate the hash as well.
+ *   and calculate the hash as well. Other things could be calculated
+ *   as well, like a byte frequency table.
  * - Other non-compression related CODECS could be added, for example
  *   base-64 encoding. The 'shrink_t' structure provides an interface
  *   for creating generic byte filters. A compression related filter
@@ -417,12 +418,46 @@ static int shrink_rle_decode(shrink_t *io) {
 	return 0;
 }
 
+static int shrink_mtf_encode(shrink_t *io) {
+	assert(io);
+	uint8_t m[256];
+	for (int i = 0; i < (int)sizeof m; i++)
+		m[i] = i;
+	for (int ch = 0; (ch = get(io)) != -1; ) {
+		int i = 0;
+		for (i = 0; m[i] != ch; i++)
+			assert(i < (int)sizeof m);
+		if (put(i, io) < 0)
+			return -1;
+		memmove(m + 1, m, i);
+		m[0] = ch;
+	}
+	return 0;
+}
+
+static int shrink_mtf_decode(shrink_t *io) {
+	uint8_t m[256];
+	for (int i = 0; i < (int)sizeof m; i++)
+		m[i] = i;
+	for (int ch = 0; (ch = get(io)) != -1; ) {
+		assert(ch >= 0 && ch <= (int)sizeof m);
+		int i = m[ch];
+		memmove(m + 1, m, ch);
+		m[0] = i;
+		if (put(i, io) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 int shrink(shrink_t *io, const int codec, const int encode) {
 	assert(io);
-	assert(codec == CODEC_RLE || codec == CODEC_LZSS);
-	return (encode ?
-		(codec == CODEC_LZSS ? shrink_lzss_encode : shrink_rle_encode) :
-		(codec == CODEC_LZSS ? shrink_lzss_decode : shrink_rle_decode))(io);
+	switch (codec) {
+	case CODEC_LZSS: return encode ? shrink_lzss_encode(io) : shrink_lzss_decode(io);
+	case CODEC_RLE:  return encode ? shrink_rle_encode(io)  : shrink_rle_decode(io);
+	case CODEC_MTF:  return encode ? shrink_mtf_encode(io)  : shrink_mtf_decode(io);
+	}
+	assert(0);
 }
 
 int shrink_buffer(const int codec, const int encode, const char *in, const size_t inlength, char *out, size_t *outlength) {

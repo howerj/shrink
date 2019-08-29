@@ -6,6 +6,8 @@
 *.gcov
 *.htm
 *.lzss
+*.mtb
+*.mtf
 *.o
 *.out
 *.rle
@@ -13,5 +15,5 @@
 *.tmp
 *.txt
 *.wle
-shrink
 fuzz/*
+shrink
