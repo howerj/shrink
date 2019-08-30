@@ -140,9 +140,12 @@ static int string_op(int codec, int encode, int verbose, const char *in, FILE *d
 	const int r1 = shrink_buffer(codec, encode, in, inlength, out, &outlength);
 	const int r2 = r1 ? -1 : dump_hex(dump, out, outlength);
 	free(out);
-	if (!r1 && verbose)
-		if (fprintf(stderr, "compressed: %u\n", (unsigned)outlength) < 0)
+	if (!r1 && verbose) {
+		if (fprintf(stderr, "uncompressed: %u\n", (unsigned)inlength) < 0)
 			return -1;
+		if (fprintf(stderr, "compressed:   %u\n", (unsigned)outlength) < 0)
+			return -1;
+	}
 	return -(r1 || r2);
 }
 

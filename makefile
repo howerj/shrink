@@ -1,3 +1,4 @@
+CFLAGS=-std=c99 -Wall -Wextra -pedantic -g -O2 -ftest-coverage -fprofile-arcs
 CFLAGS=-std=c99 -Wall -Wextra -pedantic -g -O2
 TARGET=shrink
 TEST_FILES=readme.md random.bin zero.bin

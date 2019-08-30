@@ -295,7 +295,8 @@ static int shrink_lzss_decode(shrink_t *io) {
 	if (init(&l, N - F) < 0)
 		return -1;
 
-	for (long r = N - F, c = 0; (c = bit_buffer_get_n_bits(l.io, &l.bit, 1)) >= 0; ) {
+	int c = 0;
+	for (unsigned r = N - F; (c = bit_buffer_get_n_bits(l.io, &l.bit, 1)) >= 0; ) {
 		if (c == LITERAL) { /* control bit: literal, emit a byte */
 			if ((c = bit_buffer_get_n_bits(l.io, &l.bit, 8)) < 0)
 				break;
@@ -311,7 +312,7 @@ static int shrink_lzss_decode(shrink_t *io) {
 		const int j = bit_buffer_get_n_bits(l.io, &l.bit, EJ); /* length */
 		if (j < 0)
 			break;
-		for (long k = 0; k < j + P; k++) { /* copy (pos,len) to output and dictionary */
+		for (unsigned k = 0; k < j + P; k++) { /* copy (pos,len) to output and dictionary */
 			c = l.buffer[(i + k) & (N - 1)];
 			if (put(c, l.io) != c)
 				return -1;
