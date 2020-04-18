@@ -1,3 +1,4 @@
+*.1
 *.a
 *.big
 *.bin
@@ -13,5 +14,5 @@
 *.tmp
 *.txt
 *.wle
-shrink
 fuzz/*
+shrink

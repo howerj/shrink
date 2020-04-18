@@ -67,7 +67,7 @@ static int hash_put(const int ch, void *out) {
 static int stats(shrink_t *l, const int codec, const int encode, const int hash, const double time, FILE *out) {
 	assert(l);
 	const char *name = codec ? "lzss" : "rle";
-	const char *shrink = encode ? "shrink" : "expand";
+	const char *op = encode ? "shrink" : "expand";
 	if (hash) {
 		hashed_io_t *h = l->in;
 		if (fprintf(out, "hash:  in(0x%04x) / out(0x%04x)\n", h->hash_in, h->hash_out) < 0)
@@ -75,7 +75,7 @@ static int stats(shrink_t *l, const int codec, const int encode, const int hash,
 	}
 	if (fprintf(out, "time:  %g\n", time) < 0)
 		return -1;
-	if (fprintf(out, "codec: %s/%s\n",  name, shrink) < 0)
+	if (fprintf(out, "codec: %s/%s\n",  name, op) < 0)
 		return -1;
 	if (fprintf(out, "text:  %u bytes\n", (unsigned)l->read) < 0)
 		return -1;
@@ -91,7 +91,7 @@ static int stats(shrink_t *l, const int codec, const int encode, const int hash,
 static int file_op(int codec, int encode, int hash, int verbose, FILE *in, FILE *out) {
 	assert(in);
 	assert(out);
-	hashed_io_t hobj = { 
+	hashed_io_t hobj = {
 		.get     = file_get, .put      = file_put,
 		.in      = in,       .out      = out,
 		.hash_in = CRC_INIT, .hash_out = CRC_INIT,
@@ -151,11 +151,19 @@ static int string_op(int codec, int encode, int verbose, const char *in, FILE *d
 
 static int usage(FILE *out, const char *arg0) {
 	assert(arg0);
+	unsigned long version = 0;
+	(void)shrink_version(&version);
+	const int o = (version >> 24) & 0xff;
+	const int x = (version >> 16) & 0xff;
+	const int y = (version >>  8) & 0xff;
+	const int z = (version >>  0) & 0xff;
 	static const char *fmt = "\
 usage: %s -[-htdclrsH] infile? outfile?\n\n\
 Repository: <https://github.com/howerj/shrink>\n\
 Maintainer: Richard James Howe\n\
-License:    Public Domain\n\
+License:    The Unlicense\n\
+Version:    %d.%d.%d\n\
+Options:    %x\n\
 Email:      howe.r.j.89@gmail.com\n\n\
 File de/compression utility, default is compress with LZSS, can use RLE. If\n\
 outfile is not given output is written to standard out, if infile and\n\
@@ -172,7 +180,7 @@ out. Have fun.\n\n\
 \t-H\tadd hash to output, implies -v\n\
 \t-s #\thex dump encoded string instead of file I/O\n\n";
 
-	return fprintf(out, fmt, arg0);
+	return fprintf(out, fmt, arg0, x, y, z, o);
 }
 
 static FILE *fopen_or_die(const char *name, const char *mode) {

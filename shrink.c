@@ -1,58 +1,23 @@
 /* Project:    Shrink, an LSZZ and RLE compression library
  * Repository: <https://github.com/howerj/shrink>
  * Maintainer: Richard James Howe
- * License:    Public Domain
+ * License:    The Unlicense
  * Email:      howe.r.j.89@gmail.com
  *
  * The LZSS CODEC is originally from Haruhiko Okumura, also placed
  * in the public domain, and has been modified since.
  * See <https://oku.edu.mie-u.ac.jp/~okumura/compression/lzss.c>.
  *
- * Some ideas for improvement:
- *
- * - A hash could be calculated over the input and the output, the
- *   best way of doing this would _not_ to do this as part of this 
- *   library but pass in callbacks and data that would wrap any I/O
- *   and calculate the hash as well. Other things could be calculated
- *   in the callback such as byte frequency, which is needed for
- *   the normal, non-adaptive Huffman encoder.
- * - Other non-compression related CODECS could be added, for example
- *   base-64 encoding, or error correcting codes like parity and
- *   Hamming codes. The 'shrink_t' structure provides an interface
- *   for creating generic byte filters. A compression related filter
- *   would be Adaptive Huffman Coding, which compliment LZSS well.
- * - Being able to chain together these filters together arbitrarily
- *   would greatly increase the utility of this library, the best
- *   way would be to use coroutines to do so; each filter yielding
- *   when it needs to perform I/O to the other, however coroutines in
- *   C either are not portable or make the code ugly depending on
- *   the implementation of them, see:
- *   <https://www.chiark.greenend.org.uk/~sgtatham/coroutines.html>
- * - Calculate the maximum compression ratio for each CODEC and provide
- *   functions to retrieve this information.
- * - A custom, fixed, dictionary could be switched into the LZSS
- *   CODEC. This could be supplied via the API. This could be
- *   encoded in many ways.
- * - The LZSS compressor might benefit from having the 
- * - The LZSS compressor could do with speeding up. The two ways of
- *   doing this would be to improve I/O speed (perhaps by grouping
- *   control bits, which would allow for byte wise I/O and perhaps
- *   make entropy left on the table easier to exploit) or by increasing
- *   the match search speed, which would be the best option. One way
- *   of potentially speeding up the search would be to store a hash
- *   pointer to the first character in a potential match.
- * - The library could use more assertions, documentation, testing,
- *   and fuzzing.
- * - As it is not worth encoding matches for small runs, we can
- *   use this to increase the maximum number of matches. (RLE done,
- *   LZSS needs looking into).
- * - The library could be made to be more (compile time) configurable,
- *   whilst using (compile time) assertions to ensure correctness. */
+ * View the projects 'readme.md' file for more information */
 
 #include "shrink.h"
 #include <assert.h>
 #include <string.h> /* memset, memmove, memcmp, memchr, strlen */
 #include <stdint.h>
+
+#ifndef SHRINK_VERSION
+#define SHRINK_VERSION (0x000000ul) /* all zeros indicates and error */
+#endif
 
 #ifdef NDEBUG
 #define DEBUGGING (0)
@@ -61,8 +26,10 @@
 #endif
 
 #ifdef USE_STATIC /* large internal buffers are statically allocated */
+#define STATIC_ON (1)
 #define STATIC static
 #else  /* large internal buffers are allocated on stack */
+#define STATIC_ON (0)
 #define STATIC auto
 #endif
 
@@ -99,6 +66,15 @@ typedef struct {
 	shrink_t *io;
 	bit_buffer_t bit;
 } lzss_t;
+
+int shrink_version(unsigned long *version) {
+	assert(version);
+	unsigned long options = 0;
+	options |= DEBUGGING << 0;
+	options |= STATIC_ON << 1;
+	*version = (options << 24) | SHRINK_VERSION;
+	return SHRINK_VERSION == 0 ? -1 : 0;
+}
 
 static int buffer_get(void *in) {
 	buffer_t *b = in;
@@ -480,6 +456,7 @@ int shrink_tests(void) {
 
 	if (!DEBUGGING)
 		return 0;
+
 	char *ts[] = {
 		"If not to heaven, then hand in hand to hell",
 		"aaaaaaaaaabbbbbbbbccddddddeeeeeeeefffffffhh",

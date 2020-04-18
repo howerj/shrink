@@ -1,7 +1,7 @@
 /* Project:    Shrink, an LSZZ and RLE compression library
  * Repository: <https://github.com/howerj/shrink>
  * Maintainer: Richard James Howe
- * License:    Public Domain
+ * License:    The Unlicense
  * Email:      howe.r.j.89@gmail.com */
 #ifndef SHRINK_H
 #define SHRINK_H
@@ -28,6 +28,7 @@ enum { CODEC_RLE, CODEC_LZSS };
 SHRINK_API int shrink(shrink_t *io, int codec, int encode);
 SHRINK_API int shrink_buffer(int codec, int encode, const char *in, size_t inlength, char *out, size_t *outlength);
 SHRINK_API int shrink_tests(void);
+SHRINK_API int shrink_version(unsigned long *version); /* version in x.y.z, z = LSB, MSB = options */
 
 #ifdef __cplusplus
 }

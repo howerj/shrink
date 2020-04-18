@@ -1,17 +1,24 @@
-# Shrink 115 104 114 105 110 107
+% shrink(1) | Compression program
 
-	| Project    | Shrink: Small Compression Library  |
-	| ---------- | ---------------------------------- |
-	| Maintainer | Richard James Howe                 |
-	| License    | Public Domain                      |
-	| Email      | howe.r.j.89@gmail.com              |
-	| Website    | <https://github.com/howerj/shrink> |
+# NAME
 
-	         __         _       __
-	   _____/ /_  _____(_)___  / /__
-	  / ___/ __ \/ ___/ / __ \/ //_/
-	 (__  ) / / / /  / / / / / ,<
-	/____/_/ /_/_/  /_/_/ /_/_/|_|
+SHRINK - An interface to the Shrink Compression Library
+
+# SYNOPSES
+
+	shrink -h
+
+	shrink [-lrv] -c [in.file] [out.file]
+
+	shrink [-lrv] -d [in.file] [out.file]
+
+# DESCRIPTION
+
+	Project:     Shrink: Small Compression Library
+	Maintainer:  Richard James Howe
+	License:     The Unlicense
+	Email:       howe.r.j.89@gmail.com
+	Website:     <https://github.com/howerj/shrink>
 
 
 This project provides [LZSS][] and [RLE][] compression routines, neither of which
@@ -19,11 +26,29 @@ do any allocation internally. The project provides the routines as a library
 and as a utility program. The library is suitable for inclusion in an
 [embedded][] project or product.
 
-# License
+# OPTIONS
 
-The code is placed in the public domain, do what thou wilt.
+File de/compression utility, default is compress with LZSS, can use RLE. If
+"out.file" is not given output is written to standard out, if "in.file" and
+"out.file" are not given input is taken from standard in and output to standard
+out.
 
-# Building
+* -- stop processing arguments
+* -t run built in self tests, zero is pass
+* -h print help and exit
+* -v verbose
+* -c compress
+* -d decompress
+* -l use LZSS
+* -r use Run Length Encoding
+* -H add hash to output, implies -v
+* -s # hex dump encoded string instead of file I/O
+
+# RETURN CODE
+
+This program returns zero on success and non-zero on failure.
+
+# BUILDING
 
 You will need [GNU Make][] and a [C][] compiler that is capable of compiling
 [C99][]. Type:
@@ -145,6 +170,20 @@ the [FILE][] set of functionality is not usually available in embedded systems.
 
 Whilst every effort was made to ensure program correctness the library is
 written in an unsafe language, do not return the [CODEC][] on untrusted input.
+
+It is a shame that [C][] lacks a facility for [coroutines][] built into the
+language and available in a fully portable way, as they are a very easy way to
+make code non-blocking (useful in an cooperating multitasking environment) but
+they are also the easiest way to make programs that can chain partially
+produced output and feed it into consumer, for example chaining the output of
+the [RLE][] [CODEC][] into the input of the [LZSS][] [CODEC][]. [C][] does not
+offer this facility and the only way to implement this start/stop functionality
+portably would complicate the internals of the library greatly, so it has not
+implemented, perhaps later.
+
+There are many more ways of improving this library; more CODECs, improved
+speed, etcetera. They will not be implemented as the idea of this library is
+simplicity and a small size.
 
 # CODECS
 
@@ -298,7 +337,15 @@ and <https://stackoverflow.com/questions/33331552>
 	original text.
 
 It might be worth implementing a fixed dictionary [CODEC][] system as part of
-this library.
+this library. Compression, like some other fields, is a wonderful things, one
+where you can get decent results with quite a quite simple [CODEC][], and the
+most advanced [CODEC][] is a yet to be invented general purposes artificial
+intelligence, we can of course use people in lieu.
+
+# COPYRIGHT
+
+The code is placed under the Unlicense, which is effectively the public
+domain, do what thou wilt.
 
 [LZSS]: https://en.wikipedia.org/wiki/Lempel%E2%80%93Ziv%E2%80%93Storer%E2%80%93Szymanski
 [RLE]: https://en.wikipedia.org/wiki/Run-length_encoding
@@ -329,5 +376,6 @@ this library.
 [part 2]: http://www.faqs.org/faqs/compression-faq/part2/
 [embedded]: https://en.wikipedia.org/wiki/Embedded_system
 [musl]: https://www.musl-libc.org/download.html
+[coroutines]: https://en.wikipedia.org/wiki/Coroutine
 
 <style type="text/css">body{margin:40px auto;max-width:850px;line-height:1.6;font-size:16px;color:#444;padding:0 10px}h1,h2,h3{line-height:1.2}table {width: 100%; border-collapse: collapse;}table, th, td{border: 1px solid black;}code { color: #091992; } </style>
