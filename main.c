@@ -130,9 +130,9 @@ static int dump_hex(FILE *d, const char *o, const unsigned long long l) {
 	return -(fputc('\n', d) < 0);
 }
 
-static int string_op(int codec, int encode, int verbose, const char *in, FILE *dump) {
+static int string_op(int codec, int encode, int verbose, const char *in, const size_t length, FILE *dump) {
 	assert(in);
-	const size_t inlength = strlen(in);
+	const size_t inlength = length;
 	size_t outlength = inlength * 16ull;
 	char *out = calloc(outlength, 1);
 	if (!out)
@@ -147,6 +147,80 @@ static int string_op(int codec, int encode, int verbose, const char *in, FILE *d
 			return -1;
 	}
 	return -(r1 || r2);
+}
+
+static int hexCharToNibble(int c) {
+	c = tolower(c);
+	if ('a' <= c && c <= 'f')
+		return 0xa + c - 'a';
+	return c - '0';
+}
+
+/* converts up to two characters and returns number of characters converted */
+static int hexStr2ToInt(const char *str, int *const val) {
+	assert(str);
+	assert(val);
+	*val = 0;
+	if (!isxdigit(*str))
+		return 0;
+	*val = hexCharToNibble(*str++);
+	if (!isxdigit(*str))
+		return 1;
+	*val = (*val << 4) + hexCharToNibble(*str);
+	return 2;
+}
+
+static char *duplicate(const char *s) {
+	assert(s);
+	const size_t sl = strlen(s) + 1ul;
+	char *r = malloc(sl);
+	if (!r)
+		return NULL;
+	return memcpy(r, s, sl);
+}
+
+static int unescape(char *r, size_t *rlength) {
+	assert(r);
+	assert(rlength);
+	const size_t length = *rlength;
+	*rlength = 0;
+	if (!length)
+		return -1;
+	size_t k = 0;
+	for (size_t j = 0, ch = 0; (ch = r[j]) && k < length; j++, k++) {
+		if (ch == '\\') {
+			j++;
+			switch (r[j]) {
+			case '\0': return -1;
+			case '\n': k--;         break; /* multi-line hack (Unix line-endings only) */
+			case '\\': r[k] = '\\'; break;
+			case  'a': r[k] = '\a'; break;
+			case  'b': r[k] = '\b'; break;
+			case  'e': r[k] = 27;   break;
+			case  'f': r[k] = '\f'; break;
+			case  'n': r[k] = '\n'; break;
+			case  'r': r[k] = '\r'; break;
+			case  't': r[k] = '\t'; break;
+			case  'v': r[k] = '\v'; break;
+			case  'x': {
+				int val = 0;
+				const int pos = hexStr2ToInt(&r[j + 1], &val);
+				if (pos < 1)
+					return -2;
+				j += pos;
+				r[k] = val;
+				break;
+			}
+			default:
+				r[k] = r[j]; break;
+			}
+		} else {
+			r[k] = ch;
+		}
+	}
+	*rlength = k;
+	r[k] = '\0';
+	return k;
 }
 
 static int usage(FILE *out, const char *arg0) {
@@ -219,8 +293,19 @@ int main(int argc, char **argv) {
 	}
 done:
 	if (string) {
-		if (i < argc)
-			return string_op(codec, encode, verbose, argv[i], stdout);
+		if (i < argc) {
+			char *s = duplicate(argv[i]);
+			if (!s)
+				return 1;
+			size_t length = strlen(s) + 1ul;
+			if (unescape(s, &length) < 0) {
+				(void)fprintf(stderr, "Invalid escape sequence\n");
+				return 1;
+			}
+			const int r = string_op(codec, encode, verbose, s, length, stdout);
+			free(s);
+			return r;
+		}
 		usage(stderr, argv[0]);
 		return 1;
 	}
