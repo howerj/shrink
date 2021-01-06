@@ -300,6 +300,7 @@ done:
 			size_t length = strlen(s) + 1ul;
 			if (unescape(s, &length) < 0) {
 				(void)fprintf(stderr, "Invalid escape sequence\n");
+				free(s);
 				return 1;
 			}
 			const int r = string_op(codec, encode, verbose, s, length, stdout);

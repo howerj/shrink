@@ -1,7 +1,7 @@
 # Shrink makefile
 # See <https://github.com/howerj/shrink> for more information
 #
-VERSION=0x010100
+VERSION=0x010101
 CFLAGS=-std=c99 -Wall -Wextra -pedantic -g -O2 -DSHRINK_VERSION="${VERSION}"
 TARGET=shrink
 DESTDIR =install

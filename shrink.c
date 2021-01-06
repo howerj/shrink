@@ -469,7 +469,7 @@ int shrink_tests(void) {
 
 	for (size_t i = 0; i < (sizeof ts / sizeof (ts[0])); i++)
 		for (int j = CODEC_RLE; j <= CODEC_LZSS; j++) {
-			const int r = test(CODEC_RLE, ts[i], strlen(ts[i]) + 1);
+			const int r = test(j, ts[i], strlen(ts[i]) + 1);
 			if (r < 0)
 				return r;
 		}

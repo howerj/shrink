@@ -2,9 +2,11 @@
 *.a
 *.big
 *.bin
+*.bz2
 *.gcda
 *.gcno
 *.gcov
+*.gz
 *.htm
 *.lzss
 *.o
@@ -14,5 +16,6 @@
 *.tmp
 *.txt
 *.wle
+*.xz
 fuzz/*
 shrink
