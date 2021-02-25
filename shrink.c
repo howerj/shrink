@@ -8,7 +8,13 @@
  * in the public domain, and has been modified since.
  * See <https://oku.edu.mie-u.ac.jp/~okumura/compression/lzss.c>.
  *
- * View the projects 'readme.md' file for more information */
+ * View the projects 'readme.md' file for more information.
+ *
+ * The only major feature missing from this library is the ability to yield
+ * within each of the CODECS, which would allow this library to both be used
+ * in a non-blocking fashion, but also so that the various CODECS can be
+ * chained together. Another minor missing feature is runtime configurable
+ * LZSS parameters. */
 
 #include "shrink.h"
 #include <assert.h>
@@ -37,6 +43,11 @@
 #define never                     assert(0)
 #define BUILD_BUG_ON(condition)   ((void)sizeof(char[1 - 2*!!(condition)]))
 
+/* It would be a good idea for these parameters to be part of the format, a
+ * single bit could be used to determine whether to use the defaults or not
+ * so as to save space. The maximum buffer size should also be configurable
+ * so embedded systems that are tight on RAM can still use this library. 
+ * Sensible ranges would have to be checked for. */
                                   /* LZSS Parameters */
 #define EI (11u)                  /* dictionary size: typically 10..13 */
 #define EJ (4u)                   /* match length:    typically 4..5 */
