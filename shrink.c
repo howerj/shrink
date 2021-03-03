@@ -14,7 +14,8 @@
  * within each of the CODECS, which would allow this library to both be used
  * in a non-blocking fashion, but also so that the various CODECS can be
  * chained together. Another minor missing feature is runtime configurable
- * LZSS parameters. */
+ * LZSS parameters. Also of note, as a generic filter library this could
+ * be used for things other than compression, like error correction codes. */
 
 #include "shrink.h"
 #include <assert.h>
@@ -43,18 +44,6 @@
 #define never                     assert(0)
 #define BUILD_BUG_ON(condition)   ((void)sizeof(char[1 - 2*!!(condition)]))
 
-/* It would be a good idea for these parameters to be part of the format, a
- * single bit could be used to determine whether to use the defaults or not
- * so as to save space. The maximum buffer size should also be configurable
- * so embedded systems that are tight on RAM can still use this library. 
- * Sensible ranges would have to be checked for. */
-                                  /* LZSS Parameters */
-#define EI (11u)                  /* dictionary size: typically 10..13 */
-#define EJ (4u)                   /* match length:    typically 4..5 */
-#define P  (2u)                   /* If match length <= P then output one character */
-#define N  (1u << EI)             /* buffer size */
-#define F  ((1u << EJ) + (P - 1)) /* lookahead buffer size */
-#define CH (' ')                  /* initial dictionary contents */
                                   /* RLE Parameters */
 #define RL    (128)               /* run length */
 #define ROVER (1)                 /* encoding only run lengths greater than ROVER + 1 */
@@ -73,7 +62,8 @@ typedef struct {
 } buffer_t;
 
 typedef struct {
-	uint8_t buffer[N * 2];
+	uint8_t buffer[(1ul << 11) * 2u];
+	unsigned EI, EJ, P, N, F, CH, defaults;
 	shrink_t *io;
 	bit_buffer_t bit;
 } lzss_t;
@@ -168,10 +158,42 @@ static int bit_buffer_flush(shrink_t *io, bit_buffer_t *bit) {
 	return 0;
 }
 
-static int init(lzss_t *l, const size_t length) {
+static int check(lzss_t *l) {
 	assert(l);
+	//BUILD_BUG_ON(EJ > EI); /* match length needs to be smaller than thing we are matching in */
+	//BUILD_BUG_ON((EI + EJ) > 16); /* unsigned and int used, minimum size is 16 bits */
+	//BUILD_BUG_ON((N - 1) & N); /* N must be power of 2 */
+	if (l->EI > 15) /* 1 << EI would be larger than smaller possible INT_MAX */
+		return -1;
+	if (l->EI < 6) /* No point in encoding */
+		return -1;
+	if ((l->N * 2ul) > sizeof(l->buffer))
+		return -1;
+	if (l->P <= 1 /*|| P > PMAX*/)
+		return -1;
+	return 0;
+}
+
+/* TODO: Put these parameters into format, allow for build time MAX buffer size 
+ * BIT 0/1 = Default params used?
+ * EI = 4 bit
+ * EJ = 4 bit
+ * P  = 4 bit */
+/* TODO: Investigate using a different initial dictionary so that small strings
+ * and the like can be encoded more efficiently, for example JSON. */
+static int init(lzss_t *l) {
+	assert(l);
+	l->EI = 11;                            /* dictionary size: typically 10..13 */
+	l->EJ = 4;                             /* match length: typically 4..5 */
+	l->P  = 2;                             /* if match length <= P then output one character */
+	l->N  = 1u << l->EI;                   /* buffer size */
+	l->F  = ((1u << l->EJ) + (l->P - 1u)); /* lookahead buffer size */
+	l->CH = ' ';                           /* initial dictionary contents */
+	if (check(l) < 0)
+		return -1;
+	const size_t length = l->N - l->F;
 	assert(length < sizeof l->buffer);
-	memset(l->buffer, CH, length);
+	memset(l->buffer, l->CH, l->N - l->F);
 	return 0;
 }
 
@@ -187,14 +209,14 @@ static int output_literal(lzss_t *l, const unsigned ch) {
 
 static int output_reference(lzss_t *l, const unsigned position, const unsigned length) {
 	assert(l);
-	assert(position < (1 << EI));
-	assert(length < ((1 << EJ) + P));
+	assert(position < (1u << l->EI));
+	assert(length < ((1u << l->EJ) + l->P));
 	if (bit_buffer_put_bit(l->io, &l->bit, REFERENCE) < 0)
 		return -1;
-	for (unsigned mask = N; mask >>= 1;)
+	for (unsigned mask = l->N; mask >>= 1;)
 		if (bit_buffer_put_bit(l->io, &l->bit, position & mask) < 0)
 			return -1;
-	for (unsigned mask = 1 << EJ; mask >>= 1; )
+	for (unsigned mask = 1 << l->EJ; mask >>= 1; )
 		if (bit_buffer_put_bit(l->io, &l->bit, length & mask) < 0)
 			return -1;
 	return 0;
@@ -206,17 +228,25 @@ static int shrink_lzss_encode(shrink_t *io) {
 	l.io = io; /* need because of STATIC */
 	unsigned bufferend = 0;
 
-	if (init(&l, N - F) < 0)
+	if (0 && l.defaults == 0) {
+		if (bit_buffer_put_bit(l.io, &l.bit, 1) < 0)
+			return -1;
+		/* EI = 4 bit
+		 * EJ = 4 bit
+		 * P  = 4 bit */
+	}
+
+	if (init(&l) < 0)
 		return -1;
 
-	for (bufferend = N - F; bufferend < N * 2u; bufferend++) {
+	for (bufferend = l.N - l.F; bufferend < l.N * 2u; bufferend++) {
 		const int c = get(l.io);
 		if (c < 0)
 			break;
 		l.buffer[bufferend] = c;
 	}
 
-	for (unsigned r = N - F, s = 0; r < bufferend; ) {
+	for (unsigned r = l.N - l.F, s = 0; r < bufferend; ) {
 		unsigned x = 0, y = 1;
 		const int ch = l.buffer[r];
 		for (unsigned i = s; i < r; i++) { /* search for longest match */
@@ -226,7 +256,7 @@ static int shrink_lzss_encode(shrink_t *io) {
 				break;
 			assert(i < sizeof l.buffer);
 			i += m - &l.buffer[i];
-			const unsigned f1 = (F <= bufferend - r) ? F : bufferend - r;
+			const unsigned f1 = (l.F <= bufferend - r) ? l.F : bufferend - r;
 			unsigned j = 1;
 			for (j = 1; j < f1; j++) { /* run of matches */
 				assert((i + j) < sizeof l.buffer);
@@ -238,31 +268,31 @@ static int shrink_lzss_encode(shrink_t *io) {
 				x = i; /* match position */
 				y = j; /* match length */
 			}
-			if ((y + P - 1) > F) /* maximum length reach, stop search */
+			if ((y + l.P - 1u) > l.F) /* maximum length reach, stop search */
 				break;
 		}
-		if (y <= P) { /* is match worth it? */
+		if (y <= l.P) { /* is match worth it? */
 			y = 1;
 			if (output_literal(&l, ch) < 0) /* Not worth it */
 				return -1;
 		} else { /* L'Oreal: Because you're worth it. */
-			if (output_reference(&l, x & (N - 1u), y - P) < 0)
+			if (output_reference(&l, x & (l.N - 1u), y - l.P) < 0)
 				return -1;
 		}
 		assert(r + y > r);
 		assert(s + y > s);
 		r += y;
 		s += y;
-		if (r >= ((N * 2u) - F)) { /* move and refill buffer */
-			BUILD_BUG_ON(sizeof l.buffer < N);
-			memmove(l.buffer, l.buffer + N, N);
-			assert(bufferend - N < bufferend);
-			assert(r - N < r);
-			assert(s - N < s);
-			bufferend -= N;
-			r -= N;
-			s -= N;
-			while (bufferend < (N * 2u)) {
+		if (r >= ((l.N * 2u) - l.F)) { /* move and refill buffer */
+			assert(sizeof (l.buffer) >= (l.N * 2u));
+			memmove(l.buffer, l.buffer + l.N, l.N);
+			assert(bufferend - l.N < bufferend);
+			assert(r - l.N < r);
+			assert(s - l.N < s);
+			bufferend -= l.N;
+			r -= l.N;
+			s -= l.N;
+			while (bufferend < (l.N * 2u)) {
 				int c = get(l.io);
 				if (c < 0)
 					break;
@@ -274,37 +304,39 @@ static int shrink_lzss_encode(shrink_t *io) {
 	return bit_buffer_flush(l.io, &l.bit);
 }
 
-static int shrink_lzss_decode(shrink_t *io) {
+static int shrink_lzss_decode(shrink_t *io) { /* NB. A tiny standalone decoder would be useful */
 	assert(io);
 	STATIC lzss_t l = { .bit = { .mask = 0 } };
 	l.io = io; /* need because of STATIC */
 
-	if (init(&l, N - F) < 0)
+	/* TODO: Read header */
+
+	if (init(&l) < 0)
 		return -1;
 
 	int c = 0;
-	for (unsigned r = N - F; (c = bit_buffer_get_n_bits(l.io, &l.bit, 1)) >= 0; ) {
+	for (unsigned r = l.N - l.F; (c = bit_buffer_get_n_bits(l.io, &l.bit, 1)) >= 0; ) {
 		if (c == LITERAL) { /* control bit: literal, emit a byte */
 			if ((c = bit_buffer_get_n_bits(l.io, &l.bit, 8)) < 0)
 				break;
 			if (put(c, l.io) != c)
 				return -1;
 			l.buffer[r++] = c;
-			r &= (N - 1u); /* wrap around */
+			r &= (l.N - 1u); /* wrap around */
 			continue;
 		}
-		const int i = bit_buffer_get_n_bits(l.io, &l.bit, EI); /* position */
+		const int i = bit_buffer_get_n_bits(l.io, &l.bit, l.EI); /* position */
 		if (i < 0)
 			break;
-		const int j = bit_buffer_get_n_bits(l.io, &l.bit, EJ); /* length */
+		const int j = bit_buffer_get_n_bits(l.io, &l.bit, l.EJ); /* length */
 		if (j < 0)
 			break;
-		for (unsigned k = 0; k < j + P; k++) { /* copy (pos,len) to output and dictionary */
-			c = l.buffer[(i + k) & (N - 1)];
+		for (unsigned k = 0; k < j + l.P; k++) { /* copy (pos,len) to output and dictionary */
+			c = l.buffer[(i + k) & (l.N - 1)];
 			if (put(c, l.io) != c)
 				return -1;
 			l.buffer[r++] = c;
-			r &= (N - 1u); /* wrap around */
+			r &= (l.N - 1u); /* wrap around */
 		}
 	}
 	return 0;
@@ -457,13 +489,7 @@ static inline int test(const int codec, const char *msg, const size_t msglen) {
 }
 
 int shrink_tests(void) {
-	BUILD_BUG_ON(EI > 15); /* 1 << EI would be larger than smallest possible INT_MAX */
-	BUILD_BUG_ON(EI < 6);  /* no point in encoding */
-	BUILD_BUG_ON(EJ > EI); /* match length needs to be smaller than thing we are matching in */
 	BUILD_BUG_ON(RL > 128);
-	BUILD_BUG_ON(P  <= 1);
-	BUILD_BUG_ON((EI + EJ) > 16); /* unsigned and int used, minimum size is 16 bits */
-	BUILD_BUG_ON((N - 1) & N); /* N must be power of 2 */
 
 	if (!DEBUGGING)
 		return 0;
