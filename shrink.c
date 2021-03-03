@@ -180,7 +180,10 @@ static int check(lzss_t *l) {
  * EJ = 4 bit
  * P  = 4 bit */
 /* TODO: Investigate using a different initial dictionary so that small strings
- * and the like can be encoded more efficiently, for example JSON. */
+ * and the like can be encoded more efficiently, for example JSON. And allow
+ * it to be specified at runtime or compile time with a proper macro. */
+/* TODO: Auto-selector for different parameter types? Reencode data multiple
+ * times to select best parameters? */
 static int init(lzss_t *l) {
 	assert(l);
 	l->EI = 11;                            /* dictionary size: typically 10..13 */
@@ -194,6 +197,12 @@ static int init(lzss_t *l) {
 	const size_t length = l->N - l->F;
 	assert(length < sizeof l->buffer);
 	memset(l->buffer, l->CH, l->N - l->F);
+//      // This allows the string "The Quick Brown Fox..." to be encoded into a tiny 
+//      // file, obviously, but a dictionary of the most common n-grams above
+//      // size P would be best, placed in the order that allows the most
+//      // common to stay in the sliding window dictionary the longest.
+//	char init[] = "The Quick Brown Fox Jump Over The Lazy Slow Dog";
+//	memcpy(l->buffer, init, sizeof init);
 	return 0;
 }
 
