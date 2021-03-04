@@ -257,6 +257,8 @@ static int shrink_lzss_encode(shrink_t *io) {
 		assert(l.EI < 16);
 		assert(l.EJ < 16);
 		assert(l.P  >= 2);
+		/* TODO: Change format so it is more efficient, store bit in
+		 * prr */
 		const uint8_t eij = l.EI | (l.EJ << 4);
 		const uint8_t prr = l.P  | (!!(l.init) << 4);
 		if (output(&l, eij) < 0)
