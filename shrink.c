@@ -242,19 +242,21 @@ static int output_reference(lzss_t *l, const unsigned position, const unsigned l
 
 static int shrink_lzss_encode(shrink_t *io) {
 	assert(io);
+	/* TODO: Share common buffer to save size */
 	STATIC lzss_t l = { .bit = { .mask = 128 }, .defaults = 1, };
 	l.io = io; /* need because of STATIC */
 	unsigned bufferend = 0;
 
 	if (bit_buffer_put_bit(l.io, &l.bit, l.defaults) < 0)
 		return -1;
-	if (l.defaults == 0) { /* TODO: Fix this, this does not work */
-		assert(l.EI < 16);
-		assert(l.EJ < 16);
+	if (l.defaults == 0) {
 		l.EI = 11;
 		l.EJ = 4;
 		l.P  = 2;
 		l.CH = ' ';
+		assert(l.EI < 16);
+		assert(l.EJ < 16);
+		assert(l.P  >= 2);
 		const uint8_t eij = l.EI | (l.EJ << 4);
 		const uint8_t prr = l.P  | (!!(l.init) << 4);
 		if (output(&l, eij) < 0)
@@ -342,7 +344,7 @@ static int shrink_lzss_decode(shrink_t *io) { /* NB. A tiny standalone decoder w
 	if (c < 0)
 		return -1;
 	l.defaults = c;
-	if (l.defaults == 0) {
+	if (l.defaults == 0) { /* TODO: Allow user to set custom settings */
 		const int eij = bit_buffer_get_n_bits(l.io, &l.bit, 8);
 		const int prr = bit_buffer_get_n_bits(l.io, &l.bit, 8);
 		if (eij < 0 || prr < 0)
@@ -350,8 +352,9 @@ static int shrink_lzss_decode(shrink_t *io) { /* NB. A tiny standalone decoder w
 		l.EI = (eij >> 0) & 0xFu;
 		l.EJ = (eij >> 4) & 0xFu;
 		l.P  = (prr >> 0) & 0xFu;
+		l.CH = ' ';
 		const int custom = (prr >> 4) & 1u;
-		if (custom && !(l.init))
+		if (custom && !(l.init)) /* TODO: Allow user to set custom initial dictionary contents */
 			return -1;
 		if ((prr >> 4) & 0xE) /* reserved bits, should be zero */
 			return -1;
