@@ -50,7 +50,7 @@
 
 #define MIN(X, Y) ((X) < (Y) ? (X) : (Y))
 
-enum { REFERENCE, LITERAL };
+enum { REFERENCE, LITERAL, };
 
 typedef struct {
 	unsigned buffer, mask;
@@ -63,6 +63,8 @@ typedef struct {
 
 typedef struct {
 	uint8_t buffer[(1ul << 11) * 2u];
+	uint8_t *init;
+	size_t init_length;
 	unsigned EI, EJ, P, N, F, CH, defaults;
 	shrink_t *io;
 	bit_buffer_t bit;
@@ -160,17 +162,13 @@ static int bit_buffer_flush(shrink_t *io, bit_buffer_t *bit) {
 
 static int check(lzss_t *l) {
 	assert(l);
-	//BUILD_BUG_ON(EJ > EI); /* match length needs to be smaller than thing we are matching in */
-	//BUILD_BUG_ON((EI + EJ) > 16); /* unsigned and int used, minimum size is 16 bits */
-	//BUILD_BUG_ON((N - 1) & N); /* N must be power of 2 */
-	if (l->EI > 15) /* 1 << EI would be larger than smaller possible INT_MAX */
-		return -1;
-	if (l->EI < 6) /* No point in encoding */
-		return -1;
-	if ((l->N * 2ul) > sizeof(l->buffer))
-		return -1;
-	if (l->P <= 1 /*|| P > PMAX*/)
-		return -1;
+	if (l->EI > 15) return -1; /* 1 << EI would be larger than smaller possible INT_MAX */
+	if (l->EI < 6) return -1; /* No point in encoding */
+	if ((l->N * 2ul) > sizeof(l->buffer)) return -1; /* buffer too small */
+	if (l->P <= 1 /*|| l->P > PMAX*/) return -1;
+	if ((l->N - 1u) & l->N) return -1;  /* N must be power of 2 */
+	if (l->EJ > l->EI) return -1; /* match length needs to be smaller than thing we are matching in */
+	if ((l->EI + l->EJ) > 16) return -1; /* unsigned and int used, minimum size is 16 bits */
 	return 0;
 }
 
@@ -181,28 +179,42 @@ static int check(lzss_t *l) {
  * P  = 4 bit */
 /* TODO: Investigate using a different initial dictionary so that small strings
  * and the like can be encoded more efficiently, for example JSON. And allow
- * it to be specified at runtime or compile time with a proper macro. */
-/* TODO: Auto-selector for different parameter types? Reencode data multiple
+ * it to be specified at runtime or compile time with a proper macro. The
+ * buffer for compression could be passed in pre-filled instead of using the
+ * lzss_t data structure. */
+/* TODO: Auto-selector for different parameter types? Re-encode data multiple
  * times to select best parameters? */
 static int init(lzss_t *l) {
 	assert(l);
-	l->EI = 11;                            /* dictionary size: typically 10..13 */
-	l->EJ = 4;                             /* match length: typically 4..5 */
-	l->P  = 2;                             /* if match length <= P then output one character */
+	if (l->defaults) {
+		l->EI = 11;                    /* dictionary size: typically 10..13 */
+		l->EJ = 4;                     /* match length: typically 4..5 */
+		l->P  = 2;                     /* if match length <= P then output one character */
+		l->CH = ' ';                   /* initial dictionary contents */
+	}
 	l->N  = 1u << l->EI;                   /* buffer size */
 	l->F  = ((1u << l->EJ) + (l->P - 1u)); /* lookahead buffer size */
-	l->CH = ' ';                           /* initial dictionary contents */
 	if (check(l) < 0)
 		return -1;
 	const size_t length = l->N - l->F;
 	assert(length < sizeof l->buffer);
-	memset(l->buffer, l->CH, l->N - l->F);
+	memset(l->buffer, l->CH, length);
 //      // This allows the string "The Quick Brown Fox..." to be encoded into a tiny 
 //      // file, obviously, but a dictionary of the most common n-grams above
 //      // size P would be best, placed in the order that allows the most
 //      // common to stay in the sliding window dictionary the longest.
 //	char init[] = "The Quick Brown Fox Jump Over The Lazy Slow Dog";
 //	memcpy(l->buffer, init, sizeof init);
+	if (l->init)
+		memcpy(l->buffer, l->init, MIN(length, l->init_length));
+	return 0;
+}
+
+static int output(lzss_t *l, unsigned ch) {
+	assert(l);
+	for (unsigned mask = 256; mask >>= 1; )
+		if (bit_buffer_put_bit(l->io, &l->bit, ch & mask) < 0)
+			return -1;
 	return 0;
 }
 
@@ -210,10 +222,7 @@ static int output_literal(lzss_t *l, const unsigned ch) {
 	assert(l);
 	if (bit_buffer_put_bit(l->io, &l->bit, LITERAL) < 0)
 		return -1;
-	for (unsigned mask = 256; mask >>= 1; )
-		if (bit_buffer_put_bit(l->io, &l->bit, ch & mask) < 0)
-			return -1;
-	return 0;
+	return output(l, ch);
 }
 
 static int output_reference(lzss_t *l, const unsigned position, const unsigned length) {
@@ -233,16 +242,25 @@ static int output_reference(lzss_t *l, const unsigned position, const unsigned l
 
 static int shrink_lzss_encode(shrink_t *io) {
 	assert(io);
-	STATIC lzss_t l = { .bit = { .mask = 128 }, };
+	STATIC lzss_t l = { .bit = { .mask = 128 }, .defaults = 1, };
 	l.io = io; /* need because of STATIC */
 	unsigned bufferend = 0;
 
-	if (0 && l.defaults == 0) {
-		if (bit_buffer_put_bit(l.io, &l.bit, 1) < 0)
+	if (bit_buffer_put_bit(l.io, &l.bit, l.defaults) < 0)
+		return -1;
+	if (l.defaults == 0) { /* TODO: Fix this, this does not work */
+		assert(l.EI < 16);
+		assert(l.EJ < 16);
+		l.EI = 11;
+		l.EJ = 4;
+		l.P  = 2;
+		l.CH = ' ';
+		const uint8_t eij = l.EI | (l.EJ << 4);
+		const uint8_t prr = l.P  | (!!(l.init) << 4);
+		if (output(&l, eij) < 0)
 			return -1;
-		/* EI = 4 bit
-		 * EJ = 4 bit
-		 * P  = 4 bit */
+		if (output(&l, prr) < 0)
+			return -1;
 	}
 
 	if (init(&l) < 0)
@@ -255,6 +273,8 @@ static int shrink_lzss_encode(shrink_t *io) {
 		l.buffer[bufferend] = c;
 	}
 
+	/* NB. More efficient matches might be found by delaying encoding,
+	 * as a long match might happen if we take more input.  */
 	for (unsigned r = l.N - l.F, s = 0; r < bufferend; ) {
 		unsigned x = 0, y = 1;
 		const int ch = l.buffer[r];
@@ -318,12 +338,28 @@ static int shrink_lzss_decode(shrink_t *io) { /* NB. A tiny standalone decoder w
 	STATIC lzss_t l = { .bit = { .mask = 0 } };
 	l.io = io; /* need because of STATIC */
 
-	/* TODO: Read header */
+	int c = bit_buffer_get_n_bits(l.io, &l.bit, 1);
+	if (c < 0)
+		return -1;
+	l.defaults = c;
+	if (l.defaults == 0) {
+		const int eij = bit_buffer_get_n_bits(l.io, &l.bit, 8);
+		const int prr = bit_buffer_get_n_bits(l.io, &l.bit, 8);
+		if (eij < 0 || prr < 0)
+			return -1;
+		l.EI = (eij >> 0) & 0xFu;
+		l.EJ = (eij >> 4) & 0xFu;
+		l.P  = (prr >> 0) & 0xFu;
+		const int custom = (prr >> 4) & 1u;
+		if (custom && !(l.init))
+			return -1;
+		if ((prr >> 4) & 0xE) /* reserved bits, should be zero */
+			return -1;
+	}
 
 	if (init(&l) < 0)
 		return -1;
 
-	int c = 0;
 	for (unsigned r = l.N - l.F; (c = bit_buffer_get_n_bits(l.io, &l.bit, 1)) >= 0; ) {
 		if (c == LITERAL) { /* control bit: literal, emit a byte */
 			if ((c = bit_buffer_get_n_bits(l.io, &l.bit, 8)) < 0)
@@ -454,6 +490,7 @@ static int shrink_rle_decode(shrink_t *io) {
 	return 0;
 }
 
+/* TODO: Allow custom CODEC to be entered? */
 int shrink(shrink_t *io, const int codec, const int encode) {
 	assert(io);
 	switch (codec) {
