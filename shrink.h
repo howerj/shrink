@@ -20,6 +20,9 @@ typedef struct {
 	int (*put)(int ch, void *out); /* return ch on no error */
 	void *in, *out;                /* passed to 'get' and 'put' respectively */
 	size_t read, wrote;            /* read only, bytes 'get' and 'put' respectively */
+	unsigned char *buf;            /* compression buffer and initial dictionary contents */
+	size_t buf_length;             /* length of buf, if this is not long enough compression my fail */
+	unsigned p, ei, ej, defaults;
 } shrink_t; /**< I/O abstraction, use to redirect to wherever you want... */
 
 enum { CODEC_RLE, CODEC_LZSS };
