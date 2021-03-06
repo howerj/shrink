@@ -96,7 +96,8 @@ static int file_op(int codec, int encode, int hash, int verbose, FILE *in, FILE 
 		.in      = in,       .out      = out,
 		.hash_in = CRC_INIT, .hash_out = CRC_INIT,
 	};
-	shrink_t unhashed = { .get = file_get, .put = file_put, .in  = in,   .out = out,   };
+	unsigned char buffer[4096];
+	shrink_t unhashed = { .get = file_get, .put = file_put, .in  = in,   .out = out,  .buffer = buffer, .buffer_length = sizeof (buffer), };
 	shrink_t hashed   = { .get = hash_get, .put = hash_put, .in = &hobj, .out = &hobj, };
 	shrink_t *io = hash ? &hashed : &unhashed;
 	const clock_t begin = clock();
