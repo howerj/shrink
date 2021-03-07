@@ -103,6 +103,9 @@ functions pointers *get* and *put* respectively. *get* returns the same as
 		int (*put)(int ch, void *out);
 		void *in, *out;
 		size_t read, wrote;
+		unsigned char *buffer;
+		size_t buffer_length;
+		int custom;
 	} shrink_t;
 
 	int shrink(shrink_t *io, int codec, int encode);
@@ -114,6 +117,18 @@ byte or invalid input).
 The *read* and *wrote* fields contain the number of bytes read in by *get* and
 written by *put*, they do not need to be updated by the [API][] user.
 
+The user must provide the buffer used for compression and decompression when
+using the *shrink\_t* structure. This allows the user to control where that
+buffer is allocated, but also what the initial contents of that buffer are,
+which will need to be the same for compression and decompression, by default
+the shrink library will zero that buffer for you each call, however, you can
+prevent that from happening by setting the option "custom", in the structure,
+this will allow you to use a custom initial dictionary, which much be set
+to the same contents each time compress and decompress routines are called.
+This feature is only useful for LZSS compression, it allows much greater
+compression ratios for known data as matches can happen right away against
+the initial contents.
+
 A common use of any compression library is encoding blocks bytes in memory, as
 such the common example is provided for with the function *shrink\_buffer*.
 Internally it uses *shrink* with some internally defined callbacks for *get*
@@ -124,7 +139,8 @@ and after it contains the number of bytes written to the output (and zero if
 	int shrink_buffer(int codec, int encode, const char *in,
 		size_t inlength, char *out, size_t *outlength);
 
-*codec* and *encode* are both used in the same way as *shrink*.
+*codec* and *encode* are both used in the same way as *shrink*. However the
+buffer location and initial contents cannot be controlled.
 
 The function *shrink\_tests* executes a series of built in self tests that
 checks that the basic functionality of the library is correct. If the

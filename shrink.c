@@ -7,7 +7,6 @@
  * The LZSS CODEC is originally from Haruhiko Okumura, also placed
  * in the public domain, and has been modified since.
  * See <https://oku.edu.mie-u.ac.jp/~okumura/compression/lzss.c>.
- *
  * View the projects 'readme.md' file for more information. Making this
  * optionally non-blocking would be good. */
 
@@ -163,7 +162,7 @@ static int bit_buffer_flush(shrink_t *io, bit_buffer_t *bit) {
 static int init(lzss_t *l, const size_t length) {
 	assert(l);
 	assert(length < l->io->buffer_length);
-	if (l->io->custom == 0) /* The user must clear the register in this case */
+	if (l->io->custom == 0) /* the user must clear the register in this case */
 		memset(l->io->buffer, CH, length);
 	return 0;
 }
@@ -420,37 +419,63 @@ int shrink(shrink_t *io, const int codec, const int encode) {
 	return -1;
 }
 
-int shrink_buffer(const int codec, const int encode, const char *in, const size_t inlength, char *out, size_t *outlength) {
+static int shrink_buffer_custom(
+		const int codec, const int encode, 
+		const char *in, const size_t inlength, 
+		char *out, size_t *outlength,
+		unsigned char *buffer,
+		const size_t buffer_length,
+		const int custom) {
 	assert(in);
 	assert(out);
-	assert(outlength);
-	ALLOCATE unsigned char buffer[N * 2u];
-	buffer_t ib = { .b = (unsigned char*)in,  .used = 0, .length = inlength };
-	buffer_t ob = { .b = (unsigned char*)out, .used = 0, .length = *outlength };
-	shrink_t io = { .get = buffer_get, .put = buffer_put, .in  = &ib, .out = &ob, .buffer = buffer, .buffer_length = sizeof buffer, };
+	assert(buffer);
+	buffer_t ib = { .b = (unsigned char*)in,  .used = 0, .length = inlength, };
+	buffer_t ob = { .b = (unsigned char*)out, .used = 0, .length = *outlength, };
+	shrink_t io = { 
+		.get = buffer_get, .put = buffer_put, 
+		.in  = &ib, .out = &ob, 
+		.buffer = buffer, .buffer_length = buffer_length, .custom = custom, 
+	};
 	const int r = shrink(&io, codec, encode);
 	*outlength = r == 0 ? io.wrote : 0;
 	return r;
 }
 
-/* TODO: Do test with custom buffer */
-static inline int test(const int codec, const char *msg, const size_t msglen) {
+int shrink_buffer(const int codec, const int encode, const char *in, const size_t inlength, char *out, size_t *outlength) {
+	assert(in);
+	assert(out);
+	assert(outlength);
+	ALLOCATE unsigned char buffer[N * 2u];
+	return shrink_buffer_custom(codec, encode, in, inlength, out, outlength, buffer, sizeof buffer, 0);
+}
+
+static inline int test(const int codec, const char *msg, const size_t msglen, unsigned char *buffer, size_t buffer_length, int custom) {
 	assert(msg);
+	assert(buffer);
+	unsigned char buffer_copy[N * 2];
 	char compressed[256] = { 0 }, decompressed[256] = { 0 };
 	size_t complen = sizeof compressed, decomplen = sizeof decompressed;
 	if (msglen > 256)
 		return -1;
-	const int r1 = shrink_buffer(codec, 1, msg,        msglen,  compressed,   &complen);
+	if (custom) {
+		assert(buffer && buffer_length <= sizeof (buffer_copy));
+		memcpy(buffer_copy, buffer, buffer_length);
+	}
+	const int r1 = shrink_buffer_custom(codec, 1, msg,        msglen,  compressed,   &complen,   buffer_copy, buffer_length, custom);
 	if (r1 < 0)
 		return -2;
-	const int r2 = shrink_buffer(codec, 0, compressed, complen, decompressed, &decomplen);
+	if (custom) {
+		assert(buffer);
+		memcpy(buffer_copy, buffer, buffer_length);
+	}
+	const int r2 = shrink_buffer_custom(codec, 0, compressed, complen, decompressed, &decomplen, buffer_copy, buffer_length, custom);
 	if (r2 < 0)
 		return -3;
 	if (msglen != decomplen)
 		return -4;
 	if (memcmp(msg, decompressed, msglen))
 		return -5;
-	return 0;
+	return complen;
 }
 
 int shrink_tests(void) {
@@ -465,6 +490,8 @@ int shrink_tests(void) {
 	if (!DEBUGGING)
 		return 0;
 
+	unsigned char buffer[N * 2];
+
 	char *ts[] = {
 		"If not to heaven, then hand in hand to hell",
 		"aaaaaaaaaabbbbbbbbccddddddeeeeeeeefffffffhh",
@@ -477,10 +504,22 @@ int shrink_tests(void) {
 
 	for (size_t i = 0; i < (sizeof ts / sizeof (ts[0])); i++)
 		for (int j = CODEC_RLE; j <= CODEC_LZSS; j++) {
-			const int r = test(j, ts[i], strlen(ts[i]) + 1);
+			const int r = test(j, ts[i], strlen(ts[i]) + 1, buffer, sizeof buffer, 0);
 			if (r < 0)
 				return r;
 		}
+
+	char custom_test[] = "The Quick Brown Fox Jumped Over The Lazy Dog's Back";
+	unsigned char custom[N * 2] = "                            The Quick Brown Jumped The Lazy 's Back";
+	const size_t custom_test_length = sizeof custom_test;
+	const int normal_compress_length = test(CODEC_LZSS, custom_test, custom_test_length, buffer, sizeof buffer, 0);
+	if (normal_compress_length < 0)
+		return -1;
+	const int custom_compress_length = test(CODEC_LZSS, custom_test, custom_test_length, custom, sizeof custom, 1);
+	if (custom_compress_length < 0)
+		return -1;
+	if (custom_compress_length >= normal_compress_length)
+		return -1;
 	return 0;
 }
 
