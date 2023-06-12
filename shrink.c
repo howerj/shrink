@@ -202,7 +202,7 @@ static int output_reference(lzss_t *l, const unsigned position, const unsigned l
 
 static int shrink_lzss_encode(shrink_t *io) {
 	assert(io);
-	STATIC lzss_t l = { .bit = { .mask = 128 }, };
+	STATIC lzss_t l = { .bit = { .mask = 128, }, };
 	l.io = io; /* need because of STATIC */
 	unsigned bufferend = 0;
 
@@ -249,16 +249,16 @@ static int shrink_lzss_encode(shrink_t *io) {
 			if (output_reference(&l, x & (N - 1u), y - P) < 0)
 				return -1;
 		}
-		assert(r + y > r);
-		assert(s + y > s);
+		assert((r + y) > r);
+		assert((s + y) > s);
 		r += y;
 		s += y;
 		if (r >= ((N * 2u) - F)) { /* move and refill buffer */
 			BUILD_BUG_ON(sizeof l.buffer < N);
 			memmove(l.buffer, l.buffer + N, N);
 			assert(bufferend - N < bufferend);
-			assert(r - N < r);
-			assert(s - N < s);
+			assert((r - N) < r);
+			assert((s - N) < s);
 			bufferend -= N;
 			r -= N;
 			s -= N;
@@ -276,7 +276,7 @@ static int shrink_lzss_encode(shrink_t *io) {
 
 static int shrink_lzss_decode(shrink_t *io) {
 	assert(io);
-	STATIC lzss_t l = { .bit = { .mask = 0 } };
+	STATIC lzss_t l = { .bit = { .mask = 0, }, };
 	l.io = io; /* need because of STATIC */
 
 	if (init(&l, N - F) < 0)
@@ -337,7 +337,7 @@ static int rle_write_run(shrink_t *io, const int count, const int ch) {
 
 static int shrink_rle_encode(shrink_t *io) { /* this could do with simplifying... */
 	assert(io);
-	uint8_t buf[RL] = { 0 }; /* buffer to store data with no runs */
+	uint8_t buf[RL] = { 0, }; /* buffer to store data with no runs */
 	int idx = 0, prev = -1;
 	for (int c = 0; (c = get(io)) >= 0; prev = c) {
 		if (c == prev) { /* encode runs of data */
@@ -427,8 +427,8 @@ int shrink_buffer(const int codec, const int encode, const char *in, const size_
 	assert(in);
 	assert(out);
 	assert(outlength);
-	buffer_t ib = { .b = (unsigned char*)in,  .used = 0, .length = inlength };
-	buffer_t ob = { .b = (unsigned char*)out, .used = 0, .length = *outlength };
+	buffer_t ib = { .b = (unsigned char*)in,  .used = 0, .length = inlength, };
+	buffer_t ob = { .b = (unsigned char*)out, .used = 0, .length = *outlength, };
 	shrink_t io = { .get = buffer_get, .put = buffer_put, .in  = &ib, .out = &ob, };
 	const int r = shrink(&io, codec, encode);
 	*outlength = r == 0 ? io.wrote : 0;
@@ -439,7 +439,7 @@ int shrink_buffer(const int codec, const int encode, const char *in, const size_
 
 static inline int test(const int codec, const char *msg, const size_t msglen) {
 	assert(msg);
-	char compressed[TBUFL] = { 0 }, decompressed[TBUFL] = { 0 };
+	char compressed[TBUFL] = { 0, }, decompressed[TBUFL] = { 0, };
 	size_t complen = sizeof compressed, decomplen = sizeof decompressed;
 	if (msglen > TBUFL)
 		return -1;

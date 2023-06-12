@@ -145,7 +145,7 @@ system).
 
 The [CODEC][] is especially sensitive to the speed at which [memchr][] matches
 characters, the [musl][] C library shows that optimizing these very simple
-functions is non-trivial.
+string functions such as [memchr][] is non-trivial.
 
 When the [LZSS][] [CODEC][] is used a fairly large buffer (~4KiB depending on
 options) is allocated on the stack. The [RLE][] [CODEC][] uses comparatively
@@ -342,6 +342,19 @@ where you can get decent results with quite a quite simple [CODEC][], and the
 most advanced [CODEC][] is a yet to be invented general purposes artificial
 intelligence, we can of course use people in lieu.
 
+An interesting article about adding another instruction to the [LZSS][]
+[CODEC][] is <https://richg42.blogspot.com/2022/01/lzxor.html>, LZSS can
+be thought of having two instructions, one for literal runs "LIT [BYTE]"
+and another for runs of data stored in a buffer "COPY [LENGTH, DISTANCE]".
+Extending LZSS with a third instruction based on Exclusive-Or (Addition or
+subtraction would also work, subtraction being especially interesting for
+making a compression CODEC for a [SUBLEQ machine][]). The instruction looks
+like "XOR [LENGTH, DISTANCE, 1 OR MORE BYTE]" and can be used instead of
+LIT or COPY. It XORs the output buffer at DISTANCE bytes for LENGTH bytes with
+the following 1 or more bytes. This means partial matches can be 
+encoded (which places a heavy burden on the encoder, decoding is simple).
+This CODEC is known as "LZ\_XOR".
+
 # COPYRIGHT
 
 The code is placed under the Unlicense, which is effectively the public
@@ -377,5 +390,6 @@ domain, do what thou wilt.
 [embedded]: https://en.wikipedia.org/wiki/Embedded_system
 [musl]: https://www.musl-libc.org/download.html
 [coroutines]: https://en.wikipedia.org/wiki/Coroutine
+[SUBLEQ machine]: https://github.com/howerj/subleq
 
 <style type="text/css">body{margin:40px auto;max-width:850px;line-height:1.6;font-size:16px;color:#444;padding:0 10px}h1,h2,h3{line-height:1.2}table {width: 100%; border-collapse: collapse;}table, th, td{border: 1px solid black;}code { color: #091992; } </style>
