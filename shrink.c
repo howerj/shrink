@@ -14,7 +14,23 @@
  * within each of the CODECS, which would allow this library to both be used
  * in a non-blocking fashion, but also so that the various CODECS can be
  * chained together. Another minor missing feature is runtime configurable
- * LZSS parameters. */
+ * LZSS parameters. 
+ *
+ * Experiments should be done with setting the initial LZSS dictionary
+ * contents to a custom dictionary. This could allow for memory savings,
+ * especially for small strings of a known distribution (such as many
+ * small JSON strings). This does not actually have to be done within
+ * the library, but could be done by manipulating the I/O callbacks to
+ * take their input from the custom dictionaries. The ngrams package
+ * <https://github.com/howerj/ngram> can be used to come up with a list
+ * of common phrases given a corpus of representative data. 
+ *
+ * Another missing feature is control over the location of the lookahead
+ * buffer, this could have been passed in via the "shrink_t" structure,
+ * it still can be whilst maintaining API compatibility.
+ *
+ * In place compression and decompression should also be looked at. As
+ * well as small string compression. */
 
 #include "shrink.h"
 #include <assert.h>
@@ -48,16 +64,32 @@
  * so as to save space. The maximum buffer size should also be configurable
  * so embedded systems that are tight on RAM can still use this library. 
  * Sensible ranges would have to be checked for. */
-                                  /* LZSS Parameters */
-#define EI (11u)                  /* dictionary size: typically 10..13 */
-#define EJ (4u)                   /* match length:    typically 4..5 */
-#define P  (2u)                   /* If match length <= P then output one character */
+                 /* LZSS Parameters */
+#ifndef EI
+#define EI (11u) /* dictionary size: typically 10..13 */
+#endif
+#ifndef RJ
+#define EJ (4u)  /* match length:    typically 4..5 */
+#endif
+#ifndef P
+#define P  (2u)  /* If match length <= P then output one character */
+#endif
+#ifndef CH
+#define CH (' ') /* initial dictionary contents */
+#endif
+ 
+/* Derived LZSS Parameters */
 #define N  (1u << EI)             /* buffer size */
-#define F  ((1u << EJ) + (P - 1)) /* lookahead buffer size */
-#define CH (' ')                  /* initial dictionary contents */
-                                  /* RLE Parameters */
+#define F  ((1u << EJ) + (P - 1u)) /* lookahead buffer size */
+
+
+/* RLE Parameters */
+#ifndef RL
 #define RL    (128)               /* run length */
+#endif
+#ifndef ROVER
 #define ROVER (1)                 /* encoding only run lengths greater than ROVER + 1 */
+#endif
 
 #define MIN(X, Y) ((X) < (Y) ? (X) : (Y))
 

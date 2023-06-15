@@ -104,7 +104,8 @@ static int file_op(int codec, int encode, int hash, int verbose, FILE *in, FILE 
 	const clock_t end = clock();
 	const double time = (double)(end - begin) / CLOCKS_PER_SEC;
 	if (!r && verbose)
-		stats(io, codec, encode, hash, time, stderr);
+		if (stats(io, codec, encode, hash, time, stderr) < 0)
+			return -1;
 	return r;
 }
 
@@ -133,7 +134,7 @@ static int dump_hex(FILE *d, const char *o, const unsigned long long l) {
 static int string_op(int codec, int encode, int verbose, const char *in, const size_t length, FILE *dump) {
 	assert(in);
 	const size_t inlength = length;
-	size_t outlength = inlength * 16ull;
+	size_t outlength = inlength * 16ull; /* This is a hack! We should realloc more if shrink_buffer fails */
 	char *out = calloc(outlength, 1);
 	if (!out)
 		return -1;
@@ -303,7 +304,7 @@ done:
 				free(s);
 				return 1;
 			}
-			const int r = string_op(codec, encode, verbose, s, length, stdout);
+			const int r = string_op(codec, encode, /*hash, <- should do this as well! */ verbose, s, length, stdout);
 			free(s);
 			return r;
 		}
