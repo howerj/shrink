@@ -1,4 +1,5 @@
 /* Shrink library test driver program, see usage() */
+#define SHRINK_UNIT_TESTS
 #include "shrink.h"
 #include <assert.h>
 #include <ctype.h>
@@ -11,6 +12,7 @@
 
 #define UNUSED(X) ((void)(X))
 #define CRC_INIT (0xFFFFu)
+#define BLEN     (8192)
 
 #ifdef _WIN32 /* Used to unfuck file mode for "Win"dows. Text mode is for losers. */
 #include <windows.h>
@@ -273,6 +275,7 @@ int main(int argc, char **argv) {
 	binary(stdin);
 	binary(stdout);
 	FILE *in = stdin, *out = stdout;
+	uint8_t buffer[BLEN] = { 0, };
 	int encode = 1, codec = CODEC_LZSS, i = 1, verbose = 0, string = 0, hash = 0;
 	for (i = 1; i < argc; i++) {
 		if (argv[i][0] != '-')
@@ -281,7 +284,7 @@ int main(int argc, char **argv) {
 			switch (ch) {
 			case '-': i++; goto done;
 			case 't': return -shrink_tests();
-			case 'h': usage(stderr, argv[0]); return 0;
+			case 'h': (void)usage(stderr, argv[0]); return 0;
 			case 'v': verbose++; break;
 			case 'd': encode = 0; break;
 			case 'c': encode = 1; break;
@@ -308,7 +311,7 @@ done:
 			free(s);
 			return r;
 		}
-		usage(stderr, argv[0]);
+		(void)usage(stderr, argv[0]);
 		return 1;
 	}
 

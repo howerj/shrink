@@ -337,10 +337,11 @@ and <https://stackoverflow.com/questions/33331552>
 	original text.
 
 It might be worth implementing a fixed dictionary [CODEC][] system as part of
-this library. Compression, like some other fields, is a wonderful things, one
-where you can get decent results with quite a quite simple [CODEC][], and the
-most advanced [CODEC][] is a yet to be invented general purposes artificial
-intelligence, we can of course use people in lieu.
+this library. Although there are other ways this could be handled, instead we
+could feed the compressor a fixed corpus (a small one <1KiB) (and the
+decompressor the compressed version) before any compression takes place, which
+would have the same effect as feeding in a custom dictionary (albeit with more
+work done).
 
 An interesting article about adding another instruction to the [LZSS][]
 [CODEC][] is <https://richg42.blogspot.com/2022/01/lzxor.html>, LZSS can
@@ -354,6 +355,11 @@ LIT or COPY. It XORs the output buffer at DISTANCE bytes for LENGTH bytes with
 the following 1 or more bytes. This means partial matches can be 
 encoded (which places a heavy burden on the encoder, decoding is simple).
 This CODEC is known as "LZ\_XOR".
+
+Compression, like some other fields, is a wonderful things, one
+where you can get decent results with quite a quite simple [CODEC][], and the
+most advanced [CODEC][] is a yet to be invented general purposes artificial
+intelligence, we can of course use people in lieu.
 
 # COPYRIGHT
 

@@ -1,8 +1,8 @@
 # Shrink makefile
 # See <https://github.com/howerj/shrink> for more information
 #
-VERSION=0x010101
-CFLAGS=-std=c99 -Wall -Wextra -pedantic -g -O2 -DSHRINK_VERSION="${VERSION}"
+PACKAGE_VERSION=0x020000
+CFLAGS=-std=c99 -Wall -Wextra -pedantic -g -O2 -DSHRINK_VERSION="${PACKAGE_VERSION}"
 TARGET=shrink
 DESTDIR =install
 
@@ -39,7 +39,7 @@ install: ${TARGET} lib${TARGET}.a ${TARGET}.1 .git
 	cd ${DESTDIR}/src && git reset --hard HEAD
 
 dist: install
-	tar zcf ${TARGET}-${VERSION}.tgz ${DESTDIR}
+	tar zcf ${TARGET}-${PACKAGE_VERSION}.tgz ${DESTDIR}
 
 check:
 	cppcheck --enable=all *.c
