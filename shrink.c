@@ -552,62 +552,6 @@ static int shrink_elias_decode(shrink_t *io) {
 	return 0;
 }
 
-#if 0
-/* Move To Front CODEC 
- *
- * Author: Richard James Howe
- * License: The Unlicense
- * Email: howe.r.j.89@gmail.com
- */
-#include <assert.h>
-#include <stdio.h>
-#include <string.h>
-#include <ctype.h>
-#define UNUSED(X) ((void)(X))
-#ifdef _WIN32 /* Used to unfuck file mode for "Win"dows. Text mode is for losers. */
-#include <windows.h>
-#include <io.h>
-#include <fcntl.h>
-static void binary(FILE *f) { _setmode(_fileno(f), _O_BINARY); }
-#else
-static inline void binary(FILE *f) { UNUSED(f); }
-#endif
-
-#define ELEM (256)
-
-static int imtf(unsigned char *model, FILE *in, FILE *out) {
-	assert(model);
-	assert(in);
-	assert(out);
-	if (init(model) < 0)
-		return -1;
-	for (int ch = 0; (ch = fgetc(in)) != EOF;) {
-		assert(ch >= 0 && ch <= ELEM);
-		const int e = model[ch];
-		memmove(model + 1, model, ch);
-		model[0] = e;
-		if (fputc(e, out) < 0)
-			return -1;
-	}
-	return 0;
-}
-
-int main(int argc, char **argv) {
-	static unsigned char model[ELEM];
-	binary(stdin);
-	binary(stdout);
-	if (argc != 2) {
-		(void)fprintf(stderr, "usage: %s -d or -e\n", argv[0]);
-		return 1;
-	}
-	if (!strcmp("-e", argv[1]))
-		return mtf(model, stdin, stdout) < 0;
-	if (!strcmp("-d", argv[1]))
-		return imtf(model, stdin, stdout) < 0;
-	return 1;
-}
-#endif
-
 #define ELEM (256)
 
 static int mtf_init(unsigned char *model) {
