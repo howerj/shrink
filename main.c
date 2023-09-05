@@ -64,9 +64,21 @@ static int hash_put(const int ch, void *out) {
 	return r;
 }
 
+static const char *codec_name(const int codec) {
+	if (codec < CODEC_RLE || codec > CODEC_MTF)
+		return "unknown";
+	const char *names[] = {
+		[CODEC_RLE] = "rle",
+		[CODEC_LZSS] = "lzss",
+		[CODEC_ELIAS] = "elias",
+		[CODEC_MTF] = "mtf",
+	};
+	return names[codec];
+}
+
 static int stats(shrink_t *l, const int codec, const int encode, const int hash, const double time, FILE *out) {
 	assert(l);
-	const char *name = codec ? "lzss" : "rle";
+	const char *name = codec_name(codec);
 	const char *op = encode ? "shrink" : "expand";
 	if (hash) {
 		hashed_io_t *h = l->in;
@@ -252,6 +264,8 @@ out. Have fun.\n\n\
 \t-d\tdecompress\n\
 \t-l\tuse LZSS\n\
 \t-r\tuse Run Length Encoding\n\
+\t-e\tuse Elias Gamma Encoding\n\
+\t-m\tuse Move-To-Front Encoding\n\
 \t-H\tadd hash to output, implies -v\n\
 \t-s #\thex dump encoded string instead of file I/O\n\n";
 
@@ -287,6 +301,8 @@ int main(int argc, char **argv) {
 			case 'c': encode = 1; break;
 			case 'l': codec = CODEC_LZSS; break;
 			case 'r': codec = CODEC_RLE; break;
+			case 'e': codec = CODEC_ELIAS; break;
+			case 'm': codec = CODEC_MTF; break;
 			case 's': string = 1; break;
 			case 'H': hash = 1; verbose++; break;
 			default: goto done;

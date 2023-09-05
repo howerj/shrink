@@ -1,7 +1,7 @@
 # Shrink makefile
 # See <https://github.com/howerj/shrink> for more information
 #
-VERSION=0x010101
+VERSION=0x010200
 CFLAGS=-std=c99 -Wall -Wextra -pedantic -g -O2 -DSHRINK_VERSION="${VERSION}"
 TARGET=shrink
 DESTDIR =install
@@ -66,9 +66,23 @@ random.bin:
 	./${TARGET} -v -r -d $<.rle $<.wle
 	cmp $< $<.wle
 
+%.elias %.saile : % ${TARGET}
+	./${TARGET} -v -e -c $< $<.elias
+	./${TARGET} -v -e -d $<.elias $<.saile
+	cmp $< $<.saile
+
+%.mtf %.ftm: % ${TARGET}
+	./${TARGET} -v -m -c $< $<.mtf
+	#od -vtu1 -An -w1 my.file | sort -n | uniq -c
+	./${TARGET} -v -m -d $<.mtf $<.ftm
+	cmp $< $<.ftm
+
+
 WLE:=${TEST_FILES:=.wle}
 BIG:=${TEST_FILES:=.big}
+FTM:=${TEST_FILES:=.ftm}
+SAL:=${TEST_FILES:=.saile}
 
-test: ${TARGET} ${WLE} ${BIG}
+test: ${TARGET} ${WLE} ${BIG} ${FTM} ${SAL}
 	./${TARGET} -t
 
