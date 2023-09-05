@@ -8,9 +8,11 @@ SHRINK - An interface to the Shrink Compression Library
 
 	shrink -h
 
-	shrink [-lrv] -c [in.file] [out.file]
+	shrink [-lrvem] -c [in.file] [out.file]
 
-	shrink [-lrv] -d [in.file] [out.file]
+	shrink [-lrvem] -d [in.file] [out.file]
+
+	shrink [-lrem] string
 
 # DESCRIPTION
 
@@ -24,7 +26,9 @@ SHRINK - An interface to the Shrink Compression Library
 This project provides [LZSS][] and [RLE][] compression routines, neither of which
 do any allocation internally. The project provides the routines as a library
 and as a utility program. The library is suitable for inclusion in an
-[embedded][] project or product.
+[embedded][] project or product. Other CODECs have been added, some
+experimental, such as [Move-To-Front][] (meant as an aid to other CODECs) and
+[Elias-Gamma][] encoding.
 
 # OPTIONS
 
@@ -41,6 +45,8 @@ out.
 * -d decompress
 * -l use LZSS
 * -r use Run Length Encoding
+* -e use Elias-Gamma Encoding
+* -m use Move-To-Front Encoding
 * -H add hash to output, implies -v
 * -s # hex dump encoded string instead of file I/O
 
@@ -298,6 +304,10 @@ Decompression is much fast than compression, compression is limited by the
 speed of the search for the longest match. Speeding up the match greatly
 increases the speed of compression.
 
+## Move-To-Front
+
+## Elias-Gamma Encoding
+
 ## Other Libraries
 
 * [LZSS][] source this library was based by from Haruhiko Okumura
@@ -391,5 +401,7 @@ domain, do what thou wilt.
 [musl]: https://www.musl-libc.org/download.html
 [coroutines]: https://en.wikipedia.org/wiki/Coroutine
 [SUBLEQ machine]: https://github.com/howerj/subleq
+[Move-To-Front]: https://en.wikipedia.org/wiki/Move-to-front_transform
+[Elias-Gamma]: https://en.wikipedia.org/wiki/Elias_gamma_coding
 
 <style type="text/css">body{margin:40px auto;max-width:850px;line-height:1.6;font-size:16px;color:#444;padding:0 10px}h1,h2,h3{line-height:1.2}table {width: 100%; border-collapse: collapse;}table, th, td{border: 1px solid black;}code { color: #091992; } </style>

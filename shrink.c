@@ -469,25 +469,23 @@ static int gamma_size(unsigned v) {
 The Elias Gamma CODEC should be combined with LZSS to produce
 a better format. 
 
-The CODEC should also be customizable so it deals with N-bits
-instead of bytes. 
-
 The Elias-Gamma encoder should also be turned into a set
 of functions that can be reused throughout this code. */
+
+#define ELIAS_BITS (4)
+#define ELIAS_TERMINAL (1 + (1 << ELIAS_BITS))
+
 static int shrink_elias_encode(shrink_t *io) {
 	assert(io);
-	bit_buffer_t buf = { .mask = 128, };
+	bit_buffer_t buf = { .mask = 128, }, ibuf = { .mask = 0, };
 	for (int end = 0;!end;) {
-		int c = get(io);
+		int c = bit_buffer_get_n_bits(io, &ibuf, ELIAS_BITS);
 		if (c < 0) {
-			c = 256;
+			c = ELIAS_TERMINAL;
 			end = 1;
 		}
-		int bit_sz = gamma_size(c);
+		const int bit_sz = (gamma_size(c) - 1) / 2;
 		int bit_msk = 1;
-
-		bit_sz--;
-		bit_sz /= 2;
 
 		for (int x = 0; x < bit_sz; x++) {
 			if (bit_buffer_put_bit(io, &buf, 1) < 0)
@@ -512,7 +510,7 @@ static int shrink_elias_encode(shrink_t *io) {
 
 static int shrink_elias_decode(shrink_t *io) {
 	assert(io);
-	bit_buffer_t buf = { .mask = 0, };
+	bit_buffer_t buf = { .mask = 0, }, obuf = { .mask = 128, };
 	for (;;) {
 		int v = 1;
 		int bit_count = 0;
@@ -535,15 +533,22 @@ static int shrink_elias_decode(shrink_t *io) {
 				return ELINE;
 			if (r)
 				v++;
-			if (v > 256)
+			if (v > ELIAS_TERMINAL)
 				return 0;
 		}
 		v--;
 		assert(v >= 0);
-		assert(v <= 256); /* 256 = terminal */
-		if (put(v, io) < 0)
-			return ELINE;
+		assert(v <= ELIAS_TERMINAL);
+		for (int x = 0; x < ELIAS_BITS; x++) {
+			if (bit_buffer_put_bit(io, &obuf, v & (1 << (ELIAS_BITS - 1))) < 0)
+				return ELINE;
+			v <<= 1;
+		}
+		/*if (put(v, io) < 0)
+			return ELINE;*/
 	}
+	if (bit_buffer_flush(io, &obuf) < 0)
+		return ELINE;
 	return 0;
 }
 
