@@ -10,10 +10,12 @@
 *.gcov
 *.gz
 *.htm
+*.lzp
 *.lzss
 *.mtf
 *.o
 *.out
+*.plz
 *.rle
 *.saile
 *.smol

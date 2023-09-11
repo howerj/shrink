@@ -303,6 +303,7 @@ int main(int argc, char **argv) {
 			case 'r': codec = CODEC_RLE; break;
 			case 'e': codec = CODEC_ELIAS; break;
 			case 'm': codec = CODEC_MTF; break;
+			case 'z': codec = CODEC_LZP; break;
 			case 's': string = 1; break;
 			case 'H': hash = 1; verbose++; break;
 			default: goto done;

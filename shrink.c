@@ -14,7 +14,10 @@
  * within each of the CODECS, which would allow this library to both be used
  * in a non-blocking fashion, but also so that the various CODECS can be
  * chained together. Another minor missing feature is runtime configurable
- * LZSS parameters. 
+ * LZSS parameters, which can only be changed at compile time.
+ *
+ * The different CODECs should be made to removable at compile-time to
+ * save on space.
  *
  * Experiments should be done with setting the initial LZSS dictionary
  * contents to a custom dictionary. This could allow for memory savings,
@@ -544,8 +547,6 @@ static int shrink_elias_decode(shrink_t *io) {
 				return ELINE;
 			v <<= 1;
 		}
-		/*if (put(v, io) < 0)
-			return ELINE;*/
 	}
 	if (bit_buffer_flush(io, &obuf) < 0)
 		return ELINE;
@@ -606,6 +607,93 @@ static int shrink_mtf_decode(shrink_t *io) {
 	return 0;
 }
 
+#ifndef LZP_HASH_ORDER
+#define LZP_HASH_ORDER (16l)
+#endif
+
+#ifndef LZP_BLEN
+#define LZP_BLEN (8)
+#endif
+
+#define LZP_HASH_SIZE  (1ul << LZP_HASH_ORDER)
+
+static inline uint16_t lzp_hash(const uint16_t h, const uint16_t x) {
+	return (h << 4) ^ x;
+}
+
+int shrink_lzp_encode(shrink_t *io) {
+	assert(io);
+
+	uint8_t table[LZP_HASH_SIZE] = { 0, }, buf[LZP_BLEN + 1];
+	uint16_t hash = 0;
+	for (;;) {
+		int i = 0, j = 1, ch = 0, mask = 0;
+		for (i = 0; i < LZP_BLEN; i++) {
+			ch = get(io);
+			if (ch < 0)
+				break;
+			/*assert(((size_t)hash) < sizeof (table));*/
+			if (ch == table[hash]) {
+				mask |= 1 << i;
+			} else {
+				/*assert(((size_t)hash) < sizeof (table));*/
+				table[hash] = ch;
+				assert(j < (int)sizeof (buf));
+				buf[j++] = ch;
+			}
+			hash = lzp_hash(hash, ch);
+		}
+		if (i > 0) {
+			buf[0] = mask;
+			for (int k = 0; k < j; k++) {
+				assert(k < (int)sizeof (buf));
+				if (put(buf[k], io) < 0)
+					return ELINE;
+			}
+		}
+		if (ch < 0)
+			break;
+	}
+
+	return 0;
+}
+
+int shrink_lzp_decode(shrink_t *io) {
+	assert(io);
+
+	uint8_t table[LZP_HASH_SIZE] = { 0, }, buf[LZP_BLEN];
+	uint16_t hash = 0; 
+	for (;;) {
+		int i = 0, j = 0, ch = 0;
+		int mask = get(io);
+		if (mask < 0)
+			break;
+		for (i = 0; i < LZP_BLEN; i++) {
+			if ((mask & (1 << i)) != 0) {
+				/*assert(((size_t)hash) < sizeof (table));*/
+				ch = table[hash];
+			} else {
+				ch = get(io);
+				if (ch < 0)
+					break;
+				/*assert(((size_t)hash) < sizeof (table));*/
+				table[hash] = ch;
+			}
+			assert(j < (int)sizeof(buf));
+			buf[j++] = ch;
+			hash = lzp_hash(hash, ch);
+		}
+		if (j > 0) {
+			for (int k = 0; k < j; k++) {
+				assert(k < (int)sizeof(buf));
+				if (put(buf[k], io) < 0)
+					return ELINE;
+			}
+		}
+	}
+	return 0;
+}
+
 int shrink(shrink_t *io, const int codec, const int encode) {
 	assert(io);
 	switch (codec) {
@@ -615,6 +703,7 @@ int shrink(shrink_t *io, const int codec, const int encode) {
 	case CODEC_LZSS: return encode ? shrink_lzss_encode(io) : shrink_lzss_decode(io);
 	case CODEC_ELIAS: return encode ? shrink_elias_encode(io) : shrink_elias_decode(io);
 	case CODEC_MTF: return encode ? shrink_mtf_encode(io) : shrink_mtf_decode(io);
+	case CODEC_LZP: return encode ? shrink_lzp_encode(io) : shrink_lzp_decode(io);
 	}
 	never;
 	return ELINE;
@@ -677,7 +766,7 @@ int shrink_tests(void) {
 	};
 
 	for (size_t i = 0; i < (sizeof ts / sizeof (ts[0])); i++)
-		for (int j = CODEC_RLE; j <= CODEC_MTF; j++) {
+		for (int j = CODEC_RLE; j <= CODEC_LZP; j++) {
 			const int r = test(j, ts[i], strlen(ts[i]) + 1);
 			if (r < 0)
 				return r;
