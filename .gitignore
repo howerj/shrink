@@ -9,6 +9,7 @@
 *.gcno
 *.gcov
 *.gz
+*.gz
 *.htm
 *.lzp
 *.lzss
@@ -19,9 +20,14 @@
 *.rle
 *.saile
 *.smol
+*.tar
+*.tbl
+*.tgz
 *.tmp
 *.txt
+*.txz
 *.wle
+*.xz
 *.xz
 fuzz/*
 mtf

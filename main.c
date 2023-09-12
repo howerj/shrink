@@ -65,13 +65,14 @@ static int hash_put(const int ch, void *out) {
 }
 
 static const char *codec_name(const int codec) {
-	if (codec < CODEC_RLE || codec > CODEC_MTF)
+	if (codec < CODEC_RLE || codec > CODEC_LZP)
 		return "unknown";
 	const char *names[] = {
 		[CODEC_RLE] = "rle",
 		[CODEC_LZSS] = "lzss",
 		[CODEC_ELIAS] = "elias",
 		[CODEC_MTF] = "mtf",
+		[CODEC_LZP] = "lzp",
 	};
 	return names[codec];
 }
@@ -245,7 +246,7 @@ static int usage(FILE *out, const char *arg0) {
 	const int y = (version >>  8) & 0xff;
 	const int z = (version >>  0) & 0xff;
 	static const char *fmt = "\
-usage: %s -[-htdclrsH] infile? outfile?\n\n\
+usage: %s -[-htdclrezsH] infile? outfile?\n\n\
 Repository: <https://github.com/howerj/shrink>\n\
 Maintainer: Richard James Howe\n\
 License:    The Unlicense\n\
@@ -266,6 +267,7 @@ out. Have fun.\n\n\
 \t-r\tuse Run Length Encoding\n\
 \t-e\tuse Elias Gamma Encoding\n\
 \t-m\tuse Move-To-Front Encoding\n\
+\t-z\tuse LZP\n\
 \t-H\tadd hash to output, implies -v\n\
 \t-s #\thex dump encoded string instead of file I/O\n\n";
 
