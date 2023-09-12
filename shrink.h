@@ -1,8 +1,3 @@
-/* Project:    Shrink, an LSZZ and RLE compression library
- * Repository: <https://github.com/howerj/shrink>
- * Maintainer: Richard James Howe
- * License:    The Unlicense
- * Email:      howe.r.j.89@gmail.com */
 #ifndef SHRINK_H
 #define SHRINK_H
 #ifdef __cplusplus
@@ -10,6 +5,12 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+
+#define SHRINK_PROJECT   "Shrink, a small compression library"
+#define SHRINK_RPOSITORY "https://github.com/howerj/shrink"
+#define SHRINK_AUTHOR    "Richard James Howe"
+#define SHRINK_LICENSE   "The Unlicense / Public Domain"
+#define SHRINK_EMAIL     "howe.r.j.89@gmail.com"
 
 #ifndef SHRINK_API
 #define SHRINK_API /* Used to apply attributes to exported functions */

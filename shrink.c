@@ -42,6 +42,27 @@
 
 #define ELINE (-__LINE__)
 
+#ifndef SHRINK_RLE_ENABLE
+#define SHRINK_RLE_ENABLE (1)
+#endif
+
+#ifndef SHRINK_LZSS_ENABLE
+#define SHRINK_LZSS_ENABLE (1)
+#endif
+
+#ifndef SHRINK_ELIAS_ENABLE
+#define SHRINK_ELIAS_ENABLE (1)
+#endif
+
+#ifndef SHRINK_MTF_ENABLE
+#define SHRINK_MTF_ENABLE (1)
+#endif
+
+#ifndef SHRINK_LZP_ENABLE
+#define SHRINK_LZP_ENABLE (1)
+#endif
+
+
 #ifndef SHRINK_VERSION
 #define SHRINK_VERSION (0x000000ul) /* all zeros indicates and error */
 #endif
@@ -626,6 +647,18 @@ int shrink_lzp_encode(shrink_t *io) {
 
 	uint8_t table[LZP_HASH_SIZE] = { 0, }, buf[LZP_BLEN + 1];
 	uint16_t hash = 0;
+	/* N.B. The table, or model, can be saved and reused on other
+	 * similar files to achieve better compression ratios. The same
+	 * model will need to be read in by the decompressor.
+	 *
+	 * This is easy enough to do with the following:
+
+		- fread(table, 1, sizeof(table), fopen("codec.tbl", "rb"));
+		- fwrite(table, 1, sizeof(table), fopen("codec.tbl", "wb"));
+
+	 * Ideally this would be passed it, in fact the table itself really
+	 * should be passed in as it is quite large.
+	*/
 	for (;;) {
 		int i = 0, j = 1, ch = 0, mask = 0;
 		for (i = 0; i < LZP_BLEN; i++) {
@@ -662,6 +695,7 @@ int shrink_lzp_decode(shrink_t *io) {
 	assert(io);
 
 	uint8_t table[LZP_HASH_SIZE] = { 0, }, buf[LZP_BLEN];
+	/*fread(table, 1, sizeof(table), fopen("codec.tbl", "rb"));*/
 	uint16_t hash = 0; 
 	for (;;) {
 		int i = 0, j = 0, ch = 0;
@@ -696,14 +730,14 @@ int shrink_lzp_decode(shrink_t *io) {
 
 int shrink(shrink_t *io, const int codec, const int encode) {
 	assert(io);
+	/* N.B. Dead code elimination should remove unused
+	 * CODECs, even with no optimizations on. */
 	switch (codec) {
-	/* N.B. Each CODEC should be optional, as in it should be possible
-	 * to compile out each CODEC to save space. */
-	case CODEC_RLE:  return encode ? shrink_rle_encode(io)  : shrink_rle_decode(io);
-	case CODEC_LZSS: return encode ? shrink_lzss_encode(io) : shrink_lzss_decode(io);
-	case CODEC_ELIAS: return encode ? shrink_elias_encode(io) : shrink_elias_decode(io);
-	case CODEC_MTF: return encode ? shrink_mtf_encode(io) : shrink_mtf_decode(io);
-	case CODEC_LZP: return encode ? shrink_lzp_encode(io) : shrink_lzp_decode(io);
+	case CODEC_RLE:   if (!SHRINK_RLE_ENABLE)   return -1; return encode ? shrink_rle_encode(io)   : shrink_rle_decode(io);
+	case CODEC_LZSS:  if (!SHRINK_LZSS_ENABLE)  return -1; return encode ? shrink_lzss_encode(io)  : shrink_lzss_decode(io);
+	case CODEC_ELIAS: if (!SHRINK_ELIAS_ENABLE) return -1; return encode ? shrink_elias_encode(io) : shrink_elias_decode(io);
+	case CODEC_MTF:   if (!SHRINK_MTF_ENABLE)   return -1; return encode ? shrink_mtf_encode(io)   : shrink_mtf_decode(io);
+	case CODEC_LZP:   if (!SHRINK_LZP_ENABLE)   return -1; return encode ? shrink_lzp_encode(io)   : shrink_lzp_decode(io);
 	}
 	never;
 	return ELINE;
