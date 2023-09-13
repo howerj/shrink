@@ -8,6 +8,8 @@ SHRINK - An interface to the Shrink Compression Library
 
 	shrink -h
 
+	shrink -t
+
 	shrink [-lrvemz] -c [in.file] [out.file]
 
 	shrink [-lrvemz] -d [in.file] [out.file]
@@ -52,6 +54,8 @@ out.
 * -m use Move-To-Front Encoding
 * -H add hash to output, implies -v
 * -s # hex dump encoded string instead of file I/O
+* -p file.bin preload compressor working buffer with data
+* -P file.bin save compressor working buffer after opertion
 
 # RETURN CODE
 
@@ -112,6 +116,8 @@ functions pointers *get* and *put* respectively. *get* returns the same as
 		int (*put)(int ch, void *out);
 		void *in, *out;
 		size_t read, wrote;
+		unsigned char *buffer;
+		size_t buffer_len;
 	} shrink_t;
 
 	int shrink(shrink_t *io, int codec, int encode);
@@ -155,6 +161,8 @@ system).
 The [CODEC][] is especially sensitive to the speed at which [memchr][] matches
 characters, the [musl][] C library shows that optimizing these very simple
 string functions such as [memchr][] is non-trivial.
+
+**TODO: Rewrite this section, it is now incorrect.**
 
 When the [LZSS][] [CODEC][] is used a fairly large buffer (~4KiB depending on
 options) is allocated on the stack. The [RLE][] [CODEC][] uses comparatively

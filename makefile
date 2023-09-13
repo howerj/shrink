@@ -1,9 +1,10 @@
 # Shrink makefile
 # See <https://github.com/howerj/shrink> for more information
 #
-VERSION=0x010300
+VERSION=0x020000
 CFLAGS=-std=c99 -Wall -Wextra -pedantic -g -O2 -DSHRINK_VERSION="${VERSION}"
 TARGET=shrink
+DBG=
 DESTDIR =install
 
 .PHONY: clean all test check install dist
@@ -57,29 +58,29 @@ random.bin:
 	dd if=/dev/urandom of=$@ count=2048
 
 %.lzss %.big: % ${TARGET}
-	./${TARGET} -v -c $< $<.lzss
-	./${TARGET} -v -d $<.lzss $<.big
+	${DBG} ./${TARGET} -v -c $< $<.lzss
+	${DBG} ./${TARGET} -v -d $<.lzss $<.big
 	cmp $< $<.big
 
 %.rle %.wle: % ${TARGET}
-	./${TARGET} -v -r -c $< $<.rle
-	./${TARGET} -v -r -d $<.rle $<.wle
+	${DBG} ./${TARGET} -v -r -c $< $<.rle
+	${DBG} ./${TARGET} -v -r -d $<.rle $<.wle
 	cmp $< $<.wle
 
 %.elias %.saile : % ${TARGET}
-	./${TARGET} -v -e -c $< $<.elias
-	./${TARGET} -v -e -d $<.elias $<.saile
+	${DBG} ./${TARGET} -v -e -c $< $<.elias
+	${DBG} ./${TARGET} -v -e -d $<.elias $<.saile
 	cmp $< $<.saile
 
 %.mtf %.ftm: % ${TARGET}
-	./${TARGET} -v -m -c $< $<.mtf
+	${DBG} ./${TARGET} -v -m -c $< $<.mtf
 	#od -vtu1 -An -w1 my.file | sort -n | uniq -c
-	./${TARGET} -v -m -d $<.mtf $<.ftm
+	${DBG} ./${TARGET} -v -m -d $<.mtf $<.ftm
 	cmp $< $<.ftm
 
 %.lzp %.plz : % ${TARGET}
-	./${TARGET} -v -z -c $< $<.lzp
-	./${TARGET} -v -z -d $<.lzp $<.plz
+	${DBG} ./${TARGET} -v -z -c $< $<.lzp
+	${DBG} ./${TARGET} -v -z -d $<.lzp $<.plz
 	cmp $< $<.plz
 
 WLE:=${TEST_FILES:=.wle}

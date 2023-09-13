@@ -22,11 +22,87 @@ static inline void binary(FILE *f) { UNUSED(f); }
 #endif
 
 typedef struct {
+	char *arg;   /* parsed argument */
+	int index,   /* index into argument list */
+	    option,  /* parsed option */
+	    reset;   /* set to reset */
+	char *place; /* internal use: scanner position */
+	int  init;   /* internal use: initialized or not */
+	FILE *error; /* turn error reporting on/off */
+} custom_getopt_t;   /* getopt clone; with a few modifications */
+
+typedef struct {
 	int (*get)(void *in);
 	int (*put)(int ch, void *out);
 	void *in, *out;
 	uint16_t hash_in, hash_out;
 } hashed_io_t;
+
+/* Adapted from: <https://stackoverflow.com/questions/10404448>, this
+ * could be extended to parse out numeric values, and do other things, but
+ * that is not needed here. The function and structure should be turned
+ * into a header only library. */
+static int custom_getopt(custom_getopt_t *opt, const int argc, char *const argv[], const char *fmt) {
+	assert(opt);
+	assert(fmt);
+	assert(argv);
+	enum { BADARG_E = ':', BADCH_E = '?', BADIO_E = '!', };
+
+	if (!(opt->init)) {
+		opt->place = ""; /* option letter processing */
+		opt->init  = 1;
+		opt->index = 1;
+	}
+
+	if (opt->reset || !*opt->place) { /* update scanning pointer */
+		opt->reset = 0;
+		if (opt->index >= argc || *(opt->place = argv[opt->index]) != '-') {
+			opt->place = "";
+			return -1;
+		}
+		if (opt->place[1] && *++opt->place == '-') { /* found "--" */
+			opt->index++;
+			opt->place = "";
+			return -1;
+		}
+	}
+
+	const char *oli = NULL; /* option letter list index */
+	if ((opt->option = *opt->place++) == ':' || !(oli = strchr(fmt, opt->option))) { /* option letter okay? */
+		 /* if the user didn't specify '-' as an option, assume it means -1.  */
+		if (opt->option == '-')
+			return -1;
+		if (!*opt->place)
+			opt->index++;
+		if (opt->error && *fmt != ':')
+			if (fprintf(opt->error, "illegal option -- %c\n", opt->option) < 0)
+				return BADIO_E;
+		return BADCH_E;
+	}
+
+	if (*++oli != ':') { /* don't need argument */
+		opt->arg = NULL;
+		if (!*opt->place)
+			opt->index++;
+	} else {  /* need an argument */
+		if (*opt->place) { /* no white space */
+			opt->arg = opt->place;
+		} else if (argc <= ++opt->index) { /* no arg */
+			opt->place = "";
+			if (*fmt == ':')
+				return BADARG_E;
+			if (opt->error)
+				if (fprintf(opt->error, "option requires an argument -- %c\n", opt->option) < 0)
+					return BADIO_E;
+			return BADCH_E;
+		} else	{ /* white space */
+			opt->arg = argv[opt->index];
+		}
+		opt->place = "";
+		opt->index++;
+	}
+	return opt->option; /* dump back option letter */
+}
 
 static int file_get(void *in) {
 	assert(in);
@@ -68,11 +144,11 @@ static const char *codec_name(const int codec) {
 	if (codec < CODEC_RLE || codec > CODEC_LZP)
 		return "unknown";
 	const char *names[] = {
-		[CODEC_RLE] = "rle",
-		[CODEC_LZSS] = "lzss",
+		[CODEC_RLE]   = "rle",
+		[CODEC_LZSS]  = "lzss",
 		[CODEC_ELIAS] = "elias",
-		[CODEC_MTF] = "mtf",
-		[CODEC_LZP] = "lzp",
+		[CODEC_MTF]   = "mtf",
+		[CODEC_LZP]   = "lzp",
 	};
 	return names[codec];
 }
@@ -101,7 +177,9 @@ static int stats(shrink_t *l, const int codec, const int encode, const int hash,
 	return 0;
 }
 
-static int file_op(int codec, int encode, int hash, int verbose, FILE *in, FILE *out) {
+static int file_op(unsigned char *buffer, size_t buffer_length, 
+	int codec, int encode, int hash, int verbose, FILE *in, FILE *out) {
+	assert(buffer);
 	assert(in);
 	assert(out);
 	hashed_io_t hobj = {
@@ -109,8 +187,8 @@ static int file_op(int codec, int encode, int hash, int verbose, FILE *in, FILE 
 		.in      = in,       .out      = out,
 		.hash_in = CRC_INIT, .hash_out = CRC_INIT,
 	};
-	shrink_t unhashed = { .get = file_get, .put = file_put, .in  = in,   .out = out,   };
-	shrink_t hashed   = { .get = hash_get, .put = hash_put, .in = &hobj, .out = &hobj, };
+	shrink_t unhashed = { .get = file_get, .put = file_put, .in  = in,   .out = out,   .buffer = buffer, .buffer_length = buffer_length, };
+	shrink_t hashed   = { .get = hash_get, .put = hash_put, .in = &hobj, .out = &hobj, .buffer = buffer, .buffer_length = buffer_length, };
 	shrink_t *io = hash ? &hashed : &unhashed;
 	const clock_t begin = clock();
 	const int r = shrink(io, codec, encode);
@@ -144,14 +222,15 @@ static int dump_hex(FILE *d, const char *o, const unsigned long long l) {
 	return -(fputc('\n', d) < 0);
 }
 
-static int string_op(int codec, int encode, int verbose, const char *in, const size_t length, FILE *dump) {
+static int string_op(unsigned char *buffer, size_t buffer_length, int codec, int encode, int verbose, const char *in, const size_t length, FILE *dump) {
+	assert(buffer);
 	assert(in);
 	const size_t inlength = length;
 	size_t outlength = inlength * 16ull; /* This is a hack! We should realloc more if shrink_buffer fails */
 	char *out = calloc(outlength, 1);
 	if (!out)
 		return -1;
-	const int r1 = shrink_buffer(codec, encode, in, inlength, out, &outlength);
+	const int r1 = shrink_buffer(buffer, buffer_length, codec, encode, in, inlength, out, &outlength);
 	const int r2 = r1 ? -1 : dump_hex(dump, out, outlength);
 	free(out);
 	if (!r1 && verbose) {
@@ -163,7 +242,7 @@ static int string_op(int codec, int encode, int verbose, const char *in, const s
 	return -(r1 || r2);
 }
 
-static int hexCharToNibble(int c) {
+static int hex_char_to_nibble(int c) {
 	c = tolower(c);
 	if ('a' <= c && c <= 'f')
 		return 0xa + c - 'a';
@@ -171,16 +250,16 @@ static int hexCharToNibble(int c) {
 }
 
 /* converts up to two characters and returns number of characters converted */
-static int hexStr2ToInt(const char *str, int *const val) {
+static int hex_string_to_int(const char *str, int *const val) {
 	assert(str);
 	assert(val);
 	*val = 0;
 	if (!isxdigit(*str))
 		return 0;
-	*val = hexCharToNibble(*str++);
+	*val = hex_char_to_nibble(*str++);
 	if (!isxdigit(*str))
 		return 1;
-	*val = (*val << 4) + hexCharToNibble(*str);
+	*val = (*val << 4) + hex_char_to_nibble(*str);
 	return 2;
 }
 
@@ -218,7 +297,7 @@ static int unescape(char *r, size_t *rlength) {
 			case  'v': r[k] = '\v'; break;
 			case  'x': {
 				int val = 0;
-				const int pos = hexStr2ToInt(&r[j + 1], &val);
+				const int pos = hex_string_to_int(&r[j + 1], &val);
 				if (pos < 1)
 					return -2;
 				j += pos;
@@ -241,18 +320,18 @@ static int usage(FILE *out, const char *arg0) {
 	assert(arg0);
 	unsigned long version = 0;
 	(void)shrink_version(&version);
-	const int o = (version >> 24) & 0xff;
-	const int x = (version >> 16) & 0xff;
-	const int y = (version >>  8) & 0xff;
-	const int z = (version >>  0) & 0xff;
+	const int o = (version >> 24) & 255;
+	const int x = (version >> 16) & 255;
+	const int y = (version >>  8) & 255;
+	const int z = (version >>  0) & 255;
 	static const char *fmt = "\
 usage: %s -[-htdclrezsH] infile? outfile?\n\n\
-Repository: <https://github.com/howerj/shrink>\n\
-Maintainer: Richard James Howe\n\
-License:    The Unlicense\n\
+Repository: "SHRINK_REPOSITORY"\n\
+Author:     "SHRINK_AUTHOR"\n\
+License:    "SHRINK_LICENSE"\n\
 Version:    %d.%d.%d\n\
 Options:    %x\n\
-Email:      howe.r.j.89@gmail.com\n\n\
+Email:      "SHRINK_AUTHOR"\n\n\
 File de/compression utility, default is compress with LZSS, can use RLE. If\n\
 outfile is not given output is written to standard out, if infile and\n\
 outfile are not given input is taken from standard in and output to standard\n\
@@ -269,6 +348,8 @@ out. Have fun.\n\n\
 \t-m\tuse Move-To-Front Encoding\n\
 \t-z\tuse LZP\n\
 \t-H\tadd hash to output, implies -v\n\
+\t-p file.bin\tpreload compression working buffer with file\n\
+\t-P file.bin\tsave compression working buffer\n\
 \t-s #\thex dump encoded string instead of file I/O\n\n";
 
 	return fprintf(out, fmt, arg0, x, y, z, o);
@@ -285,36 +366,45 @@ static FILE *fopen_or_die(const char *name, const char *mode) {
 	return f;
 }
 
+static int unload(const char *name, unsigned char *buffer, size_t buffer_length) {
+	if (!name) return 0;
+	FILE *f = fopen_or_die(name, "wb");
+	if (fwrite(buffer, 1, buffer_length, f) != buffer_length)
+		return -1;
+	if (fclose(f) < 0) 
+		return -1;
+	return 0;
+}
+
 int main(int argc, char **argv) {
 	binary(stdin);
 	binary(stdout);
 	FILE *in = stdin, *out = stdout;
-	int encode = 1, codec = CODEC_LZSS, i = 1, verbose = 0, string = 0, hash = 0;
-	for (i = 1; i < argc; i++) {
-		if (argv[i][0] != '-')
-			break;
-		for (int j = 1, ch = 0; (ch = argv[i][j]); j++)
-			switch (ch) {
-			case '-': i++; goto done;
-			case 't': return -shrink_tests();
-			case 'h': usage(stderr, argv[0]); return 0;
-			case 'v': verbose++; break;
-			case 'd': encode = 0; break;
-			case 'c': encode = 1; break;
-			case 'l': codec = CODEC_LZSS; break;
-			case 'r': codec = CODEC_RLE; break;
-			case 'e': codec = CODEC_ELIAS; break;
-			case 'm': codec = CODEC_MTF; break;
-			case 'z': codec = CODEC_LZP; break;
-			case 's': string = 1; break;
-			case 'H': hash = 1; verbose++; break;
-			default: goto done;
-			}
-	}
-done:
-	if (string) {
-		if (i < argc) {
-			char *s = duplicate(argv[i]);
+	int encode = 1, codec = CODEC_LZSS, verbose = 0, hash = 0;
+	custom_getopt_t opt = { .error = stderr, };
+	unsigned char buffer[1<<16] = { 0, };
+	char *save = NULL;
+
+	for (int ch = 0; (ch = custom_getopt(&opt, argc, argv, "hHtvcs:edrlmzp:P:")) != -1; ) {
+		switch (ch) {
+		case 'h': (void)usage(stderr, argv[0]); return 0;
+		case 'H': hash = 1; verbose++; break;
+		case 'v': verbose++; break;
+		case 'c': encode = 1; break;
+		case 'd': encode = 0; break;
+		case 'r': codec = CODEC_RLE; break;
+		case 'e': codec = CODEC_ELIAS; break;
+		case 'l': codec = CODEC_LZSS; break;
+		case 'm': codec = CODEC_MTF; break;
+		case 'z': codec = CODEC_LZP; break;
+		case 't': { 
+			const int r = shrink_tests(buffer, sizeof buffer); 
+			if (verbose && r < 0)
+				(void)fprintf(stderr, "Tests failed %d\n", r); 
+			return r < 0 ? 1 : 0; 
+		}
+		case 's': {
+			char *s = duplicate(opt.arg);
 			if (!s)
 				return 1;
 			size_t length = strlen(s) + 1ul;
@@ -323,14 +413,34 @@ done:
 				free(s);
 				return 1;
 			}
-			const int r = string_op(codec, encode, /*hash, <- should do this as well! */ verbose, s, length, stdout);
+			const int r = string_op(buffer, sizeof buffer, codec, encode, /*hash, <- should do this as well! */ verbose, s, length, stdout);
 			free(s);
-			return r;
+			if (unload(save, buffer, sizeof buffer) < 0)
+				return 1;
+			return r < 0 ? 1 : 0;
 		}
-		usage(stderr, argv[0]);
-		return 1;
+		case 'p': {
+			FILE *f = fopen_or_die(opt.arg, "rb");
+			size_t read = fread(buffer, 1, sizeof buffer, f);
+			if (verbose)
+				if (fprintf(stderr, "Preloaded %ld bytes\n", (long)read) < 0)
+					return 1;
+			if (fclose(f) < 0) 
+				return 1;
+			break; 
+		}
+		case 'P': 
+			if (save) {
+				(void)fprintf(stderr, "-P already set (with '%s') cannot set to '%s'\n", save, opt.arg);
+				return 1;
+			}
+			save = opt.arg; 
+			break;
+		default: return 1;
+		}
 	}
 
+	int i = opt.index;
 	if (i < argc) {  in = fopen_or_die(argv[i++], "rb"); }
 	if (i < argc) { out = fopen_or_die(argv[i++], "wb"); }
 
@@ -340,10 +450,12 @@ done:
 	if (setvbuf(in, outb, _IOFBF, sizeof outb) < 0)
 		return 1;
 
-	const int r = file_op(codec, encode, hash, verbose, in, out);
+	const int r = file_op(buffer, sizeof buffer, codec, encode, hash, verbose, in, out);
 	if (fclose(in) < 0)
 		return 1;
 	if (fclose(out) < 0)
+		return 1;
+	if (unload(save, buffer, sizeof buffer) < 0)
 		return 1;
 	return !!r;
 }
